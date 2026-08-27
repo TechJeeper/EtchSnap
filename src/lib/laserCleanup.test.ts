@@ -51,18 +51,18 @@ function testDespeckleRemovesDustKeepsShape(): void {
   assert(!isInk(image, 36, 17), 'isolated specks should be removed')
 }
 
-function testCleanupJoinsBrokenStroke(): void {
+function testCleanupKeepsSeparateShapesApart(): void {
   const image = createImage(24, 8)
   fillInkRect(image, 2, 3, 8, 2)
-  fillInkRect(image, 11, 3, 8, 2)
+  fillInkRect(image, 12, 3, 8, 2)
   cleanupLaserInk(image)
-  assert(isInk(image, 10, 3) || isInk(image, 10, 4), '1px gap in a stroke should close')
+  assert(!isInk(image, 10, 3) && !isInk(image, 11, 3), 'nearby separate shapes must not fuse together')
   assert(isInk(image, 4, 4), 'original stroke should remain')
 }
 
 const tests = [
   ['despeckle removes dust keeps shape', testDespeckleRemovesDustKeepsShape],
-  ['cleanup joins broken stroke', testCleanupJoinsBrokenStroke],
+  ['cleanup keeps separate shapes apart', testCleanupKeepsSeparateShapesApart],
 ] as const
 
 let failed = 0

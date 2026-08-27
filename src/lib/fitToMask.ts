@@ -33,6 +33,13 @@ function sampleBilinear(image: PixelImage, x: number, y: number): [number, numbe
   return [channel(0), channel(1), channel(2), channel(3)]
 }
 
+function sampleNearest(image: PixelImage, x: number, y: number): [number, number, number, number] {
+  const sx = Math.max(0, Math.min(image.width - 1, Math.round(x)))
+  const sy = Math.max(0, Math.min(image.height - 1, Math.round(y)))
+  const index = (sy * image.width + sx) * 4
+  return [image.data[index], image.data[index + 1], image.data[index + 2], image.data[index + 3]]
+}
+
 function isMagenta(r: number, g: number, b: number, tolerance: number): boolean {
   return (
     Math.abs(r - CHROMA_KEY.r) < tolerance &&
@@ -150,12 +157,18 @@ export function prepareEditTemplate(
   return createSilhouetteReference(scalePixelImage(source, scale))
 }
 
-export function fitDesignToMask(design: PixelImage, mask: PixelImage): PixelImage {
+export function fitDesignToMask(
+  design: PixelImage,
+  mask: PixelImage,
+  sampling: 'bilinear' | 'nearest' = 'bilinear',
+): PixelImage {
   const out = {
     data: new Uint8ClampedArray(mask.width * mask.height * 4),
     width: mask.width,
     height: mask.height,
   }
+
+  const sample = sampling === 'nearest' ? sampleNearest : sampleBilinear
 
   for (let y = 0; y < mask.height; y += 1) {
     for (let x = 0; x < mask.width; x += 1) {
@@ -163,7 +176,7 @@ export function fitDesignToMask(design: PixelImage, mask: PixelImage): PixelImag
       const maskAlpha = mask.data[index + 3]
       if (maskAlpha <= MASK_ALPHA) continue
 
-      const [r, g, b, a] = sampleBilinear(
+      const [r, g, b, a] = sample(
         design,
         ((x + 0.5) / mask.width) * design.width - 0.5,
         ((y + 0.5) / mask.height) * design.height - 0.5,

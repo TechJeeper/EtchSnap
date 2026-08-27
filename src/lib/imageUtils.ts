@@ -190,10 +190,12 @@ export async function postProcessDesign(
 
   isolateArtwork(imageData, sourceImageData)
 
-  for (let pass = 0; pass < 3; pass += 1) {
-    if (!removeFrameBorder(imageData)) break
+  if (!sourceImageData) {
+    for (let pass = 0; pass < 3; pass += 1) {
+      if (!removeFrameBorder(imageData)) break
+    }
+    stripOuterEdgePixels(imageData, 2)
   }
-  stripOuterEdgePixels(imageData, 2)
 
   const { data } = imageData
 
@@ -235,7 +237,11 @@ export async function postProcessDesign(
   ctx.putImageData(imageData, 0, 0)
 
   if (sourceImageData) {
-    const fitted = fitDesignToMask(imageData, sourceImageData)
+    const fitted = fitDesignToMask(
+      imageData,
+      sourceImageData,
+      mode === 'laser' ? 'nearest' : 'bilinear',
+    )
     canvas.width = fitted.width
     canvas.height = fitted.height
     const fittedCtx = canvas.getContext('2d')

@@ -32,7 +32,7 @@ export function buildComplexityInstructions(complexity: number): string {
 function modeInstructions(mode: OutputMode): string {
   return mode === 'uv'
     ? `Use full vibrant color suitable for UV printing. Clean edges. Still draw complete objects, not a tiled texture.`
-    : `Draw SOLID FILLED black (#000000) shapes that fill the silhouette. No outlines-only drawings, no fine linework, no hatching, stipple, honeycomb, or tiny isolated specks — those become unusable laser SVGs.`
+    : `Draw SOLID FILLED black (#000000) shapes with smooth edges. Fill the silhouette. No fine hatching, stipple, or tiny isolated specks.`
 }
 
 function partLine(partCount: number): string {
@@ -43,13 +43,20 @@ function partLine(partCount: number): string {
 
 function regionLine(regionCount: number): string {
   if (regionCount <= 1) {
-    return `This stencil is ONE continuous silhouette. Pose ONE complete subject so it fills the entire light area. Scale it up to use all of the available space. Nothing important may be sliced by the outline.`
+    return `This stencil is ONE part. Paint all the way to the edges of the light gray — including notches, tapers, corners, and the long sides. The artwork's outer contour must match this silhouette. Do not leave a blank margin inside the part. Do not inset a smaller copy of the shape.`
   }
 
   return `This stencil has ${regionCount} SEPARATE regions, split by magenta. Treat each region as its own tiny sticker / coloring-book page. Draw one complete object in each region and fill all space inside that region. Do not run one texture, pattern, or scene across multiple regions.`
 }
 
-function themeLine(description: string): string {
+function themeLine(description: string, regionCount: number): string {
+  if (regionCount <= 1) {
+    return `Theme for this entire part. Fill every light-gray pixel:
+${description}
+
+Compose complete motifs along this silhouette so they reach the edges. If the theme includes gears or machinery, place whole gears that fit inside the outline and add more complete motifs in the remaining corners — do not crop a rectangular scene, and do not float a smaller trapezoid inside the part.`
+  }
+
   return `Theme to illustrate as complete objects (one object per region), never as a repeating texture, cropped photo, or pattern fill:
 ${description}
 
@@ -93,7 +100,7 @@ Edit the attached PNG in place. Magenta stays ${CHROMA_KEY.hex}. Draw complete o
   return `${strictLine}
 
 Using the provided coloring-book stencil, paint this design:
-${themeLine(description)}
+${themeLine(description, regionCount)}
 
 How to read the PNG:
 - Light gray pixels = the die-cut silhouette. This is the only place you may draw.
@@ -104,11 +111,10 @@ ${regionLine(regionCount)}
 
 How to compose — this is NOT a mask over a larger picture:
 - Invent artwork whose silhouette IS this shape. Like a custom inlay or die-cut sticker.
-- Fill all space: the artwork must occupy the entire light-gray silhouette. Do not leave large empty gaps, unused arms of letters, or a tiny stamp floating in the middle.
-- Scale and arrange complete objects so they use the full width and height of each region.
-- GOOD: one complete character or object per region, fully visible, like a robot standing inside a letter and filling that letter.
-- BAD: filling the letters with a repeating gear/honeycomb/metal texture that gets sliced by the edges.
-- Every head, wing, wheel, or foot must stay inside the light-gray silhouette. If something would be sliced, rearrange or add supporting objects so the region is still full.
+- Fill all space to the light-gray edges. Do not leave a blank margin or a smaller shape floating inside.
+- GOOD: complete motifs arranged along this outline (and around notches/holes), reaching the edges.
+- BAD: cropping a rectangular gear scene, cookie-cutting a texture, or insetting a smaller trapezoid.
+- If a motif would be sliced by the silhouette, shrink it or add another complete motif so the region stays full.
 - Do NOT place a larger illustration behind the stencil and cookie-cut it.
 
 ${buildComplexityInstructions(complexity)}

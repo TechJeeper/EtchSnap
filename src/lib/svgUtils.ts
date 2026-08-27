@@ -8,6 +8,7 @@ import {
 } from './trimUtils'
 
 const TRACE_PADDING = 2
+const LASER_TRACE_SCALE = 2
 
 function hasVectorPaths(svg: string): boolean {
   return /<path[\s>]/i.test(svg)
@@ -31,7 +32,14 @@ function isLaserInkFill(fill: string): boolean {
   return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140
 }
 
-function sanitizeSvg(svg: string, width: number, height: number, mode: OutputMode): string {
+function sanitizeSvg(
+  svg: string,
+  pathWidth: number,
+  pathHeight: number,
+  displayWidth: number,
+  displayHeight: number,
+  mode: OutputMode,
+): string {
   const withoutBackgroundPaths = svg.replace(
     /<path\b[^>]*\/>|<path\b[^>]*>[\s\S]*?<\/path>/gi,
     (pathTag) => {
@@ -45,7 +53,7 @@ function sanitizeSvg(svg: string, width: number, height: number, mode: OutputMod
 
   return withoutBackgroundPaths.replace(
     /<svg\b[^>]*>/i,
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${displayWidth}" height="${displayHeight}" viewBox="0 0 ${pathWidth} ${pathHeight}">`,
   )
 }
 
@@ -55,6 +63,30 @@ function createEmbeddedSvg(dataUrl: string, width: number, height: number): stri
     `  <image href="${dataUrl}" width="${width}" height="${height}" />`,
     '</svg>',
   ].join('\n')
+}
+
+function upsampleNearest(source: ImageData, scale: number): ImageData {
+  if (scale <= 1) return source
+  const width = source.width * scale
+  const height = source.height * scale
+  const prepared = new ImageData(width, height)
+  const { data } = source
+  const out = prepared.data
+
+  for (let y = 0; y < height; y += 1) {
+    const sy = Math.min(source.height - 1, Math.floor(y / scale))
+    for (let x = 0; x < width; x += 1) {
+      const sx = Math.min(source.width - 1, Math.floor(x / scale))
+      const src = (sy * source.width + sx) * 4
+      const dest = (y * width + x) * 4
+      out[dest] = data[src]
+      out[dest + 1] = data[src + 1]
+      out[dest + 2] = data[src + 2]
+      out[dest + 3] = data[src + 3]
+    }
+  }
+
+  return prepared
 }
 
 function prepareTraceImageData(
@@ -118,7 +150,7 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
       ? {
           ltres: 1,
           qtres: 1,
-          pathomit: 16,
+          pathomit: 8,
           colorsampling: 0,
           numberofcolors: 2,
           mincolorratio: 0,
@@ -128,9 +160,9 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
           ],
           strokewidth: 0,
           linefilter: true,
-          rightangleenhance: true,
+          rightangleenhance: false,
           scale: 1,
-          roundcoords: 1,
+          roundcoords: 0,
           viewbox: true,
           desc: false,
         }
@@ -156,17 +188,30 @@ export async function pngToSvg(dataUrl: string, mode: OutputMode): Promise<strin
   const source = await loadImageDataFromDataUrl(dataUrl)
   const trimmed = trimImageData(source, TRACE_PADDING)
   const prepared = prepareTraceImageData(trimmed, mode)
-  const { width, height } = prepared
+  const displayWidth = prepared.width
+  const displayHeight = prepared.height
+  const traceSource =
+    mode === 'laser' ? upsampleNearest(prepared, LASER_TRACE_SCALE) : prepared
+  const { width, height } = traceSource
 
-  const tracedSvg = sanitizeSvg(runTrace(prepared, mode), width, height, mode)
+  const tracedSvg = sanitizeSvg(
+    runTrace(traceSource, mode),
+    width,
+    height,
+    displayWidth,
+    displayHeight,
+    mode,
+  )
   if (hasVectorPaths(tracedSvg)) {
     return tracedSvg
   }
 
   const posterizedSvg = sanitizeSvg(
-    ImageTracer.imagedataToSVG(prepared, 'posterized2'),
+    ImageTracer.imagedataToSVG(traceSource, 'posterized2'),
     width,
     height,
+    displayWidth,
+    displayHeight,
     mode,
   )
   if (hasVectorPaths(posterizedSvg)) {
@@ -174,5 +219,5 @@ export async function pngToSvg(dataUrl: string, mode: OutputMode): Promise<strin
   }
 
   const trimmedDataUrl = imageDataToDataUrl(trimmed)
-  return createEmbeddedSvg(trimmedDataUrl, width, height)
+  return createEmbeddedSvg(trimmedDataUrl, displayWidth, displayHeight)
 }

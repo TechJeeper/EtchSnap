@@ -14,72 +14,6 @@ function clearPixel(data: Uint8ClampedArray, index: number): void {
   data[index + 3] = 0
 }
 
-function paintInk(data: Uint8ClampedArray, index: number): void {
-  data[index] = 0
-  data[index + 1] = 0
-  data[index + 2] = 0
-  data[index + 3] = 255
-}
-
-function dilateInk(image: PixelImage): PixelImage {
-  const { width, height, data } = image
-  const out = new Uint8ClampedArray(data)
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4
-      if (isInk(data, index)) {
-        paintInk(out, index)
-        continue
-      }
-      let neighborInk = false
-      for (let dy = -1; dy <= 1 && !neighborInk; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
-          if (isInk(data, (ny * width + nx) * 4)) {
-            neighborInk = true
-            break
-          }
-        }
-      }
-      if (neighborInk) paintInk(out, index)
-    }
-  }
-  return { data: out, width, height }
-}
-
-function erodeInk(image: PixelImage): PixelImage {
-  const { width, height, data } = image
-  const out = new Uint8ClampedArray(data)
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = (y * width + x) * 4
-      if (!isInk(data, index)) {
-        clearPixel(out, index)
-        continue
-      }
-      let keep = true
-      for (let dy = -1; dy <= 1 && keep; dy += 1) {
-        for (let dx = -1; dx <= 1; dx += 1) {
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
-            keep = false
-            break
-          }
-          if (!isInk(data, (ny * width + nx) * 4)) {
-            keep = false
-            break
-          }
-        }
-      }
-      if (!keep) clearPixel(out, index)
-    }
-  }
-  return { data: out, width, height }
-}
-
 export function despeckleInk(image: PixelImage, minArea = 16): number {
   const { width, height, data } = image
   const seen = new Uint8Array(width * height)
@@ -124,7 +58,5 @@ export function despeckleInk(image: PixelImage, minArea = 16): number {
 
 export function cleanupLaserInk(image: PixelImage): void {
   const minArea = Math.max(16, Math.round(image.width * image.height * 0.00008))
-  const closed = erodeInk(dilateInk(image))
-  image.data.set(closed.data)
   despeckleInk(image, minArea)
 }
