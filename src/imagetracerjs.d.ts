@@ -6,8 +6,10 @@ declare module 'imagetracerjs' {
     colorsampling?: number
     numberofcolors?: number
     mincolorratio?: number
+    pal?: Array<{ r: number; g: number; b: number; a: number }>
     strokewidth?: number
     linefilter?: boolean
+    rightangleenhance?: boolean
     scale?: number
     roundcoords?: number
     viewbox?: boolean

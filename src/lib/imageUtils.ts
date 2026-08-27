@@ -3,6 +3,7 @@ import { removeFrameBorder, stripOuterEdgePixels } from './borderRemoval'
 import { isChromaKeyColor, isMagentaFamily } from './chromaKey'
 import { isolateArtwork } from './isolateArtwork'
 import { fitDesignToMask } from './fitToMask'
+import { cleanupLaserInk } from './laserCleanup'
 import { imageDataToDataUrl, trimImageData } from './trimUtils'
 
 export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
@@ -225,6 +226,10 @@ export async function postProcessDesign(
       data[i + 2] = ink
       data[i + 3] = ink === 255 ? 0 : 255
     }
+  }
+
+  if (mode === 'laser') {
+    cleanupLaserInk(imageData)
   }
 
   ctx.putImageData(imageData, 0, 0)

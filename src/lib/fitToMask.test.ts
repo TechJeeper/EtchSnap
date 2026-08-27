@@ -86,13 +86,13 @@ function testEditTemplateIsColoringBookStencil(): void {
   assert(outside.r === CHROMA_KEY.r && outside.b === CHROMA_KEY.b, 'outside must stay magenta')
 }
 
-function testPhotoStencilDrawsOutline(): void {
+function testPhotoStencilKeepsInteriorColor(): void {
   const mask = createImage(40, 20)
   fillRect(mask, 8, 4, 24, 12, 200, 180, 40, 255)
   const stencil = createPhotoStencil(mask)
   const edge = sample(stencil, 8, 8)
   const inner = sample(stencil, 20, 10)
-  assert(edge.r < 40 && edge.g < 40, 'silhouette edge should be outlined')
+  assert(edge.r === 200 && edge.g === 180, 'silhouette edge should keep the source color')
   assert(inner.r === 200 && inner.g === 180, 'interior photo pixels should stay intact')
 }
 
@@ -153,7 +153,7 @@ function testCountStencilRegionsSplitsLetters(): void {
 const tests = [
   ['same framing clip keeps holes empty', testSameFramingClipKeepsHolesEmpty],
   ['edit template is coloring-book stencil', testEditTemplateIsColoringBookStencil],
-  ['photo stencil draws outline', testPhotoStencilDrawsOutline],
+  ['photo stencil keeps interior color', testPhotoStencilKeepsInteriorColor],
   ['respect score detects edited stencil', testRespectScoreDetectsEditedStencil],
   ['respect score detects full scene', testRespectScoreDetectsFullScene],
   ['looks like stencil edit accepts in-place paint', testLooksLikeStencilEditAcceptsInPlacePaint],

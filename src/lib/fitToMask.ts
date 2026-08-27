@@ -3,7 +3,6 @@ import type { PixelImage } from './isolateArtwork.ts'
 
 const MASK_ALPHA = 16
 const BLANK_FILL = 248
-const OUTLINE = 28
 const MAGENTA_TEMPLATE_TOLERANCE = 40
 const MAGENTA_GENERATED_TOLERANCE = 55
 
@@ -42,33 +41,6 @@ function isMagenta(r: number, g: number, b: number, tolerance: number): boolean 
   )
 }
 
-function neighborOutside(mask: PixelImage, x: number, y: number, radius = 2): boolean {
-  for (let dy = -radius; dy <= radius; dy += 1) {
-    for (let dx = -radius; dx <= radius; dx += 1) {
-      if (dx === 0 && dy === 0) continue
-      const nx = x + dx
-      const ny = y + dy
-      if (nx < 0 || ny < 0 || nx >= mask.width || ny >= mask.height) return true
-      if (mask.data[(ny * mask.width + nx) * 4 + 3] <= MASK_ALPHA) return true
-    }
-  }
-  return false
-}
-
-function paintInteriorOutline(data: Uint8ClampedArray, mask: PixelImage): void {
-  for (let y = 0; y < mask.height; y += 1) {
-    for (let x = 0; x < mask.width; x += 1) {
-      const index = (y * mask.width + x) * 4
-      if (mask.data[index + 3] <= MASK_ALPHA) continue
-      if (!neighborOutside(mask, x, y)) continue
-      data[index] = OUTLINE
-      data[index + 1] = OUTLINE
-      data[index + 2] = OUTLINE
-      data[index + 3] = 255
-    }
-  }
-}
-
 export function createSilhouetteReference(mask: PixelImage): PixelImage {
   const data = new Uint8ClampedArray(mask.data.length)
 
@@ -86,7 +58,6 @@ export function createSilhouetteReference(mask: PixelImage): PixelImage {
     }
   }
 
-  paintInteriorOutline(data, mask)
   return { data, width: mask.width, height: mask.height }
 }
 
@@ -107,7 +78,6 @@ export function createPhotoStencil(source: PixelImage): PixelImage {
     }
   }
 
-  paintInteriorOutline(data, source)
   return { data, width: source.width, height: source.height }
 }
 
@@ -176,7 +146,7 @@ export function prepareEditTemplate(
   const longSide = Math.max(source.width, source.height)
   const scale = longSide < minLongSide ? minLongSide / longSide : 1
   // Blank coloring-book stencil: photo pixels invite the model to overlay a
-  // texture and crop it. A light fill plus outline makes it draw inside the shape.
+  // texture and crop it. A light fill on magenta makes it draw inside the shape.
   return createSilhouetteReference(scalePixelImage(source, scale))
 }
 

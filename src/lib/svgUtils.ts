@@ -1,5 +1,6 @@
 import ImageTracer from 'imagetracerjs'
 import type { OutputMode } from '../types'
+import { cleanupLaserInk } from './laserCleanup'
 import {
   imageDataToDataUrl,
   loadImageDataFromDataUrl,
@@ -12,22 +13,32 @@ function hasVectorPaths(svg: string): boolean {
   return /<path[\s>]/i.test(svg)
 }
 
-function isLightFill(fill: string): boolean {
+function parseRgb(fill: string): [number, number, number] | null {
   const match = fill.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i)
-  if (!match) return false
-
-  const [, r, g, b] = match.map(Number)
-  return r >= 235 && g >= 235 && b >= 235
+  if (!match) return null
+  return [Number(match[1]), Number(match[2]), Number(match[3])]
 }
 
-function sanitizeSvg(svg: string, width: number, height: number): string {
+function isLightFill(fill: string): boolean {
+  const rgb = parseRgb(fill)
+  if (!rgb) return false
+  return rgb[0] >= 235 && rgb[1] >= 235 && rgb[2] >= 235
+}
+
+function isLaserInkFill(fill: string): boolean {
+  const rgb = parseRgb(fill)
+  if (!rgb) return /#000/i.test(fill)
+  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140
+}
+
+function sanitizeSvg(svg: string, width: number, height: number, mode: OutputMode): string {
   const withoutBackgroundPaths = svg.replace(
     /<path\b[^>]*\/>|<path\b[^>]*>[\s\S]*?<\/path>/gi,
     (pathTag) => {
       const fillMatch = pathTag.match(/fill="([^"]+)"/i)
-      if (fillMatch && isLightFill(fillMatch[1])) {
-        return ''
-      }
+      if (!fillMatch) return pathTag
+      if (isLightFill(fillMatch[1])) return ''
+      if (mode === 'laser' && !isLaserInkFill(fillMatch[1])) return ''
       return pathTag
     },
   )
@@ -80,6 +91,24 @@ function prepareTraceImageData(
     }
   }
 
+  if (mode === 'laser') {
+    cleanupLaserInk(prepared)
+    const cleaned = prepared.data
+    for (let i = 0; i < cleaned.length; i += 4) {
+      if (cleaned[i + 3] < 30) {
+        cleaned[i] = 255
+        cleaned[i + 1] = 255
+        cleaned[i + 2] = 255
+        cleaned[i + 3] = 255
+      } else {
+        cleaned[i] = 0
+        cleaned[i + 1] = 0
+        cleaned[i + 2] = 0
+        cleaned[i + 3] = 255
+      }
+    }
+  }
+
   return prepared
 }
 
@@ -87,14 +116,19 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
   const options =
     mode === 'laser'
       ? {
-          ltres: 0.5,
-          qtres: 0.5,
-          pathomit: 0,
+          ltres: 1,
+          qtres: 1,
+          pathomit: 16,
           colorsampling: 0,
           numberofcolors: 2,
           mincolorratio: 0,
+          pal: [
+            { r: 0, g: 0, b: 0, a: 255 },
+            { r: 255, g: 255, b: 255, a: 255 },
+          ],
           strokewidth: 0,
           linefilter: true,
+          rightangleenhance: true,
           scale: 1,
           roundcoords: 1,
           viewbox: true,
@@ -103,7 +137,7 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
       : {
           ltres: 1,
           qtres: 1,
-          pathomit: 2,
+          pathomit: 8,
           colorsampling: 2,
           numberofcolors: 16,
           mincolorratio: 0.02,
@@ -124,7 +158,7 @@ export async function pngToSvg(dataUrl: string, mode: OutputMode): Promise<strin
   const prepared = prepareTraceImageData(trimmed, mode)
   const { width, height } = prepared
 
-  const tracedSvg = sanitizeSvg(runTrace(prepared, mode), width, height)
+  const tracedSvg = sanitizeSvg(runTrace(prepared, mode), width, height, mode)
   if (hasVectorPaths(tracedSvg)) {
     return tracedSvg
   }
@@ -133,6 +167,7 @@ export async function pngToSvg(dataUrl: string, mode: OutputMode): Promise<strin
     ImageTracer.imagedataToSVG(prepared, 'posterized2'),
     width,
     height,
+    mode,
   )
   if (hasVectorPaths(posterizedSvg)) {
     return posterizedSvg
