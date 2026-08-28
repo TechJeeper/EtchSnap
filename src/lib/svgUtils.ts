@@ -1,11 +1,11 @@
 import ImageTracer from 'imagetracerjs'
-import type { OutputMode } from '../types'
-import { cleanupLaserInk } from './laserCleanup'
+import type { OutputMode } from '../types.ts'
+import { cleanupLaserInk } from './laserCleanup.ts'
 import {
   imageDataToDataUrl,
   loadImageDataFromDataUrl,
   trimImageData,
-} from './trimUtils'
+} from './trimUtils.ts'
 
 const TRACE_PADDING = 2
 const LASER_TRACE_SCALE = 2
@@ -32,7 +32,24 @@ function isLaserInkFill(fill: string): boolean {
   return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140
 }
 
-function sanitizeSvg(
+function rewritePathAttributes(pathTag: string, mode: OutputMode): string {
+  const fillMatch = pathTag.match(/fill="([^"]+)"/i)
+  if (fillMatch && isLightFill(fillMatch[1])) return ''
+  if (mode === 'laser' && fillMatch && !isLaserInkFill(fillMatch[1])) return ''
+
+  if (mode !== 'laser') return pathTag
+
+  let rewritten = pathTag.replace(/\sstroke="[^"]*"/i, '').replace(/\sstroke-width="[^"]*"/i, '')
+  if (!/fill-rule=/i.test(rewritten)) {
+    rewritten = rewritten.replace(/<path\b/i, '<path fill-rule="evenodd"')
+  }
+  if (!/\sstroke=/i.test(rewritten)) {
+    rewritten = rewritten.replace(/<path\b/i, '<path stroke="none"')
+  }
+  return rewritten
+}
+
+export function sanitizeSvg(
   svg: string,
   pathWidth: number,
   pathHeight: number,
@@ -42,13 +59,7 @@ function sanitizeSvg(
 ): string {
   const withoutBackgroundPaths = svg.replace(
     /<path\b[^>]*\/>|<path\b[^>]*>[\s\S]*?<\/path>/gi,
-    (pathTag) => {
-      const fillMatch = pathTag.match(/fill="([^"]+)"/i)
-      if (!fillMatch) return pathTag
-      if (isLightFill(fillMatch[1])) return ''
-      if (mode === 'laser' && !isLaserInkFill(fillMatch[1])) return ''
-      return pathTag
-    },
+    (pathTag) => rewritePathAttributes(pathTag, mode),
   )
 
   return withoutBackgroundPaths.replace(
@@ -159,10 +170,11 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
             { r: 255, g: 255, b: 255, a: 255 },
           ],
           strokewidth: 0,
-          linefilter: true,
+          linefilter: false,
           rightangleenhance: false,
+          layering: 0,
           scale: 1,
-          roundcoords: 0,
+          roundcoords: 1,
           viewbox: true,
           desc: false,
         }

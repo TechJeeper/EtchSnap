@@ -12,6 +12,7 @@ declare module 'imagetracerjs' {
     rightangleenhance?: boolean
     scale?: number
     roundcoords?: number
+    layering?: number
     viewbox?: boolean
     desc?: boolean
   }

@@ -32,7 +32,7 @@ export function buildComplexityInstructions(complexity: number): string {
 function modeInstructions(mode: OutputMode): string {
   return mode === 'uv'
     ? `Use full vibrant color suitable for UV printing. Clean edges. Still draw complete objects, not a tiled texture.`
-    : `Draw SOLID FILLED black (#000000) shapes with smooth edges. Fill the silhouette. No fine hatching, stipple, or tiny isolated specks.`
+    : `Draw high-contrast black artwork with internal holes and gaps (gear teeth, gauge faces, spaces between parts). Do NOT flood-fill the entire stencil as one solid black shape. Motifs can be solid black, but the overall design must keep negative space.`
 }
 
 function partLine(partCount: number): string {
