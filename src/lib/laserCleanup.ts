@@ -147,6 +147,47 @@ function enclosedLooksLikeCutLines(image: PixelImage, exterior: Uint8Array): boo
   return enclosed > 0 && lineLike / enclosed >= 0.5
 }
 
+function inkLooksLikeStrokes(image: PixelImage, exterior: Uint8Array): boolean {
+  const { width, height, data } = image
+  const seen = new Uint8Array(width * height)
+  let ink = 0
+  let lineLike = 0
+  let largest = 0
+
+  for (let start = 0; start < width * height; start += 1) {
+    if (seen[start] || exterior[start] || !isInk(data, start * 4)) continue
+
+    const stack = [start]
+    const pixels: number[] = []
+    seen[start] = 1
+
+    while (stack.length > 0) {
+      const i = stack.pop()
+      if (i === undefined) break
+      pixels.push(i)
+      const x = i % width
+      const y = Math.floor(i / width)
+      const next = [i - 1, i + 1, i - width, i + width]
+      const valid = [x > 0, x + 1 < width, y > 0, y + 1 < height]
+      for (let n = 0; n < 4; n += 1) {
+        if (!valid[n]) continue
+        const ni = next[n]
+        if (seen[ni] || exterior[ni] || !isInk(data, ni * 4)) continue
+        seen[ni] = 1
+        stack.push(ni)
+      }
+    }
+
+    ink += pixels.length
+    largest = Math.max(largest, pixels.length)
+    if (compactness(pixels, width, height) < 0.22) lineLike += pixels.length
+  }
+
+  const interior = width * height - countExterior(exterior)
+  if (interior > 0 && largest / interior > 0.4) return false
+  return ink > 0 && lineLike / ink >= 0.45
+}
+
 function enclosedLooksLikeSpeckle(image: PixelImage, exterior: Uint8Array): boolean {
   const { width, height, data } = image
   const seen = new Uint8Array(width * height)
@@ -207,6 +248,7 @@ export function normalizeLaserPolarity(image: PixelImage, fillThreshold = 0.45):
   const enclosed = interior - ink
   if (interior === 0 || enclosed / interior < 0.05) return false
   if (ink / interior <= fillThreshold) return false
+  if (inkLooksLikeStrokes(image, exterior)) return false
   if (
     !enclosedLooksLikeCutLines(image, exterior) &&
     !enclosedLooksLikeSpeckle(image, exterior)
@@ -316,9 +358,44 @@ function closeInkGaps(image: PixelImage): void {
   }
 }
 
-export function cleanupLaserInk(image: PixelImage): void {
+export function bridgeInkGaps(image: PixelImage): number {
+  const { width, height, data } = image
+  const toFill: number[] = []
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = y * width + x
+      if (isInk(data, i * 4)) continue
+      const left = isInk(data, (i - 1) * 4)
+      const right = isInk(data, (i + 1) * 4)
+      const up = isInk(data, (i - width) * 4)
+      const down = isInk(data, (i + width) * 4)
+      const ul = isInk(data, (i - width - 1) * 4)
+      const ur = isInk(data, (i - width + 1) * 4)
+      const dl = isInk(data, (i + width - 1) * 4)
+      const dr = isInk(data, (i + width + 1) * 4)
+      if ((left && right) || (up && down) || (ul && dr) || (ur && dl)) {
+        toFill.push(i)
+      }
+    }
+  }
+
+  for (const i of toFill) paintInk(data, i * 4)
+  return toFill.length
+}
+
+export interface CleanupLaserOptions {
+  polarity?: boolean
+}
+
+export function cleanupLaserInk(image: PixelImage, options: CleanupLaserOptions = {}): void {
+  const polarity = options.polarity !== false
   despeckleInk(image, 8)
-  const inverted = normalizeLaserPolarity(image)
-  if (inverted) closeInkGaps(image)
+  if (polarity) {
+    const inverted = normalizeLaserPolarity(image)
+    if (inverted) closeInkGaps(image)
+  }
+  bridgeInkGaps(image)
+  bridgeInkGaps(image)
   despeckleInk(image, 8)
 }

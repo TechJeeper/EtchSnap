@@ -1,4 +1,4 @@
-import { cleanupLaserInk, despeckleInk, normalizeLaserPolarity } from './laserCleanup.ts'
+import { bridgeInkGaps, cleanupLaserInk, despeckleInk, normalizeLaserPolarity } from './laserCleanup.ts'
 import type { PixelImage } from './isolateArtwork.ts'
 
 function createImage(width: number, height: number): PixelImage {
@@ -101,6 +101,38 @@ function testNormalizeInvertsSpeckledPlate(): void {
   assert(isInk(image, 8, 8), 'former specks should become ink')
 }
 
+function testNormalizeDoesNotReInvertLineArt(): void {
+  const image = createImage(40, 24)
+  fillInkRect(image, 4, 4, 32, 16)
+  for (let y = 8; y <= 16; y += 2) {
+    for (let x = 8; x <= 30; x += 1) clearInk(image, x, y, 1, 1)
+  }
+  assert(normalizeLaserPolarity(image), 'filled plate with cut lines should invert once')
+  assert(!normalizeLaserPolarity(image), 'the resulting line art must not invert a second time')
+  assert(!isInk(image, 6, 6), 'former fill should stay transparent after the second pass')
+  assert(isInk(image, 12, 8), 'contour strokes should stay ink')
+}
+
+function testBridgeReconnectsDashedStroke(): void {
+  const image = createImage(24, 8)
+  fillInkRect(image, 2, 3, 7, 2)
+  fillInkRect(image, 10, 3, 6, 2)
+  assert(bridgeInkGaps(image) > 0, 'a 1-pixel gap in a stroke should be bridged')
+  assert(isInk(image, 9, 3), 'gap pixel should become ink')
+}
+
+function testCleanupWithoutPolarityLeavesLineArt(): void {
+  const image = createImage(40, 24)
+  fillInkRect(image, 4, 4, 32, 16)
+  for (let y = 8; y <= 16; y += 2) {
+    for (let x = 8; x <= 30; x += 1) clearInk(image, x, y, 1, 1)
+  }
+  assert(normalizeLaserPolarity(image), 'setup invert should succeed')
+  cleanupLaserInk(image, { polarity: false })
+  assert(!isInk(image, 6, 6), 'SVG-style cleanup must not flip line art back into a plate')
+  assert(isInk(image, 12, 8), 'contour strokes should remain')
+}
+
 function testNormalizeLeavesLineArtAlone(): void {
   const image = createImage(40, 24)
   fillInkRect(image, 8, 6, 24, 2)
@@ -115,6 +147,9 @@ const tests = [
   ['normalize inverts filled shape with cut lines', testNormalizeInvertsFilledShapeWithCutLines],
   ['normalize inverts speckled plate', testNormalizeInvertsSpeckledPlate],
   ['normalize leaves solid motif with hole', testNormalizeLeavesSolidMotifWithHole],
+  ['normalize does not re-invert line art', testNormalizeDoesNotReInvertLineArt],
+  ['bridge reconnects dashed stroke', testBridgeReconnectsDashedStroke],
+  ['cleanup without polarity leaves line art', testCleanupWithoutPolarityLeavesLineArt],
   ['normalize leaves line art alone', testNormalizeLeavesLineArtAlone],
 ] as const
 

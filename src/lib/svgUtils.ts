@@ -135,7 +135,7 @@ function prepareTraceImageData(
   }
 
   if (mode === 'laser') {
-    cleanupLaserInk(prepared)
+    cleanupLaserInk(prepared, { polarity: false })
     const cleaned = prepared.data
     for (let i = 0; i < cleaned.length; i += 4) {
       if (cleaned[i + 3] < 30) {
