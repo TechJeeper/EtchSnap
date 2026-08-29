@@ -254,6 +254,13 @@
   flex: 1;
 }
 
+.field-hint {
+  margin: 0.35rem 0 0;
+  color: #9aa3b2;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
 .field small {
   color: #9aa3b2;
 }

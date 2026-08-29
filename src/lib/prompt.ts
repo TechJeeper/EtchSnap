@@ -9,7 +9,26 @@ export function getComplexityLabel(complexity: number): string {
   return 'Complex'
 }
 
-export function buildComplexityInstructions(complexity: number): string {
+export function buildComplexityInstructions(
+  complexity: number,
+  mode: OutputMode = 'uv',
+): string {
+  if (mode === 'laser') {
+    if (complexity <= 20) {
+      return `Keep it SIMPLE for laser: 2–4 thick continuous black strokes or bold filled shapes, widely spaced. No tiny marks.`
+    }
+    if (complexity <= 40) {
+      return `Keep it LIGHT for laser: a few continuous contour bands or motifs. Thick readable lines. No stipple or dashed texture.`
+    }
+    if (complexity <= 60) {
+      return `Keep it BALANCED for laser: a clear contour or ornament field that fills this silhouette. Add more lines, still continuous, evenly spaced, and at least 3 pixels thick.`
+    }
+    if (complexity <= 80) {
+      return `Keep it DETAILED for laser: denser continuous linework (more contour levels or filigree). Density comes from MORE UNBROKEN LINES, never from speckle, hatching-as-dots, or lots of tiny objects.`
+    }
+    return `Keep it COMPLEX for laser: pack the silhouette with many nested continuous contours or interlocking motifs. Lines may sit close but must stay separate unbroken strokes — no blot, dither, or noise fill.`
+  }
+
   if (complexity <= 20) {
     return `Keep the artwork SIMPLE: a few complete bold shapes that fill this silhouette.`
   }
@@ -82,7 +101,7 @@ This is NOT a product mockup. The output will be printed or engraved onto a real
 
 Design request: ${description}
 
-${buildComplexityInstructions(complexity)}
+${buildComplexityInstructions(complexity, mode)}
 ${partLine(partCount)}
 
 Output requirements:
@@ -119,7 +138,7 @@ How to compose — this is NOT a mask over a larger picture:
 - If a motif would be sliced by the silhouette, shrink it or add another complete motif so the region stays full.
 - Do NOT place a larger illustration behind the stencil and cookie-cut it.
 
-${buildComplexityInstructions(complexity)}
+${buildComplexityInstructions(complexity, mode)}
 ${partLine(partCount)}
 
 Output:

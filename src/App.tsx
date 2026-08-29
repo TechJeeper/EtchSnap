@@ -80,7 +80,9 @@ function App() {
   const [selection, setSelection] = useState<Selection | null>(null)
   const [description, setDescription] = useState('')
   const [complexity, setComplexity] = useState(() => {
-    const stored = Number(localStorage.getItem(COMPLEXITY_STORAGE))
+    const raw = localStorage.getItem(COMPLEXITY_STORAGE)
+    if (raw == null || raw.trim() === '') return 50
+    const stored = Number(raw)
     return Number.isFinite(stored) ? Math.min(100, Math.max(0, stored)) : 50
   })
   const [mode, setMode] = useState<OutputMode>('uv')
@@ -526,6 +528,11 @@ function App() {
               />
               <span>Complex</span>
             </div>
+            {mode === 'laser' && (
+              <p className="field-hint">
+                Higher adds more continuous engraving lines, not finer speckle.
+              </p>
+            )}
           </label>
 
           <fieldset className="mode-toggle">

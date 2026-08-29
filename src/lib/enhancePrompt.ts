@@ -1,7 +1,23 @@
 import type { OutputMode } from '../types'
 import { getComplexityLabel } from './prompt'
 
-function buildPrintableComplexity(complexity: number): string {
+function buildPrintableComplexity(complexity: number, mode: OutputMode): string {
+  if (mode === 'laser') {
+    if (complexity <= 20) {
+      return `Keep it SIMPLE: a few thick continuous strokes or bold filled shapes. Wide spacing. No speckle.`
+    }
+    if (complexity <= 40) {
+      return `Keep it LIGHT: sparse continuous contour bands or motifs, still easy to engrave.`
+    }
+    if (complexity <= 60) {
+      return `Keep it BALANCED: a readable contour/ornament field. More unbroken lines, not more noise.`
+    }
+    if (complexity <= 80) {
+      return `Keep it DETAILED: denser continuous linework. Extra complexity means more contour levels, never dithering or tiny objects.`
+    }
+    return `Keep it COMPLEX: tightly packed nested contours or interlocking motifs. Every line stays a single thick stroke.`
+  }
+
   if (complexity <= 20) {
     return `Keep it SIMPLE: a few bold shapes, thick lines, and almost no ornament. One clear focal subject.`
   }
@@ -41,7 +57,7 @@ User idea:
 "${description}"
 
 Target complexity: ${getComplexityLabel(complexity)}.
-${buildPrintableComplexity(complexity)}
+${buildPrintableComplexity(complexity, mode)}
 
 Primary objective: keep a UV/laser printable GRAPHIC of their subject. Improve clarity for production. Do not invent a new concept.
 
