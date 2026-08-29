@@ -9,6 +9,24 @@ export interface MagicWandOptions {
 const MAX_FILL_RATIO = 0.55
 const MAX_BOUNDS_RATIO = 0.78
 const HIGH_SENSITIVITY = 40
+const SEED_RADIUS = 2
+const CLOSE_RADIUS = 1
+const CARDINAL = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const
+const EIGHT_DIRECTIONS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+] as const
 
 function luminance(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b
@@ -38,56 +56,52 @@ function rgbDistanceAt(
   return Math.hypot(dr, dg, db)
 }
 
-function estimateLocalTolerance(
+function sampleSeedColor(
   data: Uint8ClampedArray,
   width: number,
   height: number,
   seedX: number,
   seedY: number,
-  userTolerance: number,
-): number {
-  const seedIndex = (seedY * width + seedX) * 4
-  const seedR = data[seedIndex]
-  const seedG = data[seedIndex + 1]
-  const seedB = data[seedIndex + 2]
+): [number, number, number] {
+  const samples: { r: number; g: number; b: number; lum: number }[] = []
 
-  let sum = 0
-  let sumSq = 0
-  let count = 0
-
-  for (let dy = -3; dy <= 3; dy += 1) {
-    for (let dx = -3; dx <= 3; dx += 1) {
+  for (let dy = -SEED_RADIUS; dy <= SEED_RADIUS; dy += 1) {
+    for (let dx = -SEED_RADIUS; dx <= SEED_RADIUS; dx += 1) {
       const x = seedX + dx
       const y = seedY + dy
       if (x < 0 || y < 0 || x >= width || y >= height) continue
-
       const index = (y * width + x) * 4
       if (data[index + 3] < 16) continue
-
-      const distance = colorDistanceAt(data, index, seedR, seedG, seedB)
-      sum += distance
-      sumSq += distance * distance
-      count += 1
+      const r = data[index]
+      const g = data[index + 1]
+      const b = data[index + 2]
+      samples.push({ r, g, b, lum: luminance(r, g, b) })
     }
   }
 
-  if (count === 0) return userTolerance
-
-  const mean = sum / count
-  const variance = Math.max(0, sumSq / count - mean * mean)
-  const stdDev = Math.sqrt(variance)
-  const adaptiveCap = mean + stdDev * 1.15 + 4
-
-  if (userTolerance <= HIGH_SENSITIVITY) {
-    return Math.min(userTolerance, Math.max(8, adaptiveCap))
+  if (samples.length === 0) {
+    const index = (seedY * width + seedX) * 4
+    return [data[index], data[index + 1], data[index + 2]]
   }
 
-  return userTolerance
+  samples.sort((a, b) => a.lum - b.lum)
+  const start = Math.floor(samples.length * 0.1)
+  const end = Math.max(start + 1, Math.ceil(samples.length * 0.78))
+  let r = 0
+  let g = 0
+  let b = 0
+  const count = end - start
+  for (let i = start; i < end; i += 1) {
+    r += samples[i].r
+    g += samples[i].g
+    b += samples[i].b
+  }
+
+  return [r / count, g / count, b / count]
 }
 
-function getStepTolerance(tolerance: number, userTolerance: number): number {
-  const stepRatio = 0.52 + Math.min(0.43, userTolerance / 180)
-  return Math.max(10, tolerance * stepRatio)
+function getStepTolerance(userTolerance: number): number {
+  return Math.max(16, userTolerance * 0.72)
 }
 
 function stepBoundaryStrength(
@@ -147,6 +161,42 @@ function canExpandToNeighbor(
   return stepBoundaryStrength(data, width, x, y, nx, ny) <= edgeThreshold
 }
 
+function findStartPixel(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  seedX: number,
+  seedY: number,
+  seedR: number,
+  seedG: number,
+  seedB: number,
+  tolerance: number,
+): number {
+  const clickIndex = (seedY * width + seedX) * 4
+  if (canIncludePixel(data, clickIndex, seedR, seedG, seedB, tolerance)) {
+    return seedY * width + seedX
+  }
+
+  let best = -1
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (let dy = -SEED_RADIUS; dy <= SEED_RADIUS; dy += 1) {
+    for (let dx = -SEED_RADIUS; dx <= SEED_RADIUS; dx += 1) {
+      const x = seedX + dx
+      const y = seedY + dy
+      if (x < 0 || y < 0 || x >= width || y >= height) continue
+      const index = (y * width + x) * 4
+      if (!canIncludePixel(data, index, seedR, seedG, seedB, tolerance)) continue
+      const distance = colorDistanceAt(data, index, seedR, seedG, seedB)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = y * width + x
+      }
+    }
+  }
+
+  return best
+}
+
 function floodFillMask(
   imageData: ImageData,
   seedX: number,
@@ -157,16 +207,11 @@ function floodFillMask(
   const { width, height, data } = imageData
   const sx = Math.max(0, Math.min(width - 1, Math.floor(seedX)))
   const sy = Math.max(0, Math.min(height - 1, Math.floor(seedY)))
-  const seedIndex = (sy * width + sx) * 4
-  const seedR = data[seedIndex]
-  const seedG = data[seedIndex + 1]
-  const seedB = data[seedIndex + 2]
-  const tolerance = estimateLocalTolerance(data, width, height, sx, sy, colorTolerance)
-  const stepTolerance = getStepTolerance(tolerance, colorTolerance)
-
-  if (!canIncludePixel(data, seedIndex, seedR, seedG, seedB, tolerance)) {
-    return null
-  }
+  const [seedR, seedG, seedB] = sampleSeedColor(data, width, height, sx, sy)
+  const tolerance = colorTolerance
+  const stepTolerance = getStepTolerance(colorTolerance)
+  const start = findStartPixel(data, width, height, sx, sy, seedR, seedG, seedB, tolerance)
+  if (start < 0) return null
 
   const mask = new Uint8Array(width * height)
   const queue = new Int32Array(width * height)
@@ -175,8 +220,8 @@ function floodFillMask(
   let filled = 0
   const maxFill = Math.floor(width * height * MAX_FILL_RATIO)
 
-  queue[tail++] = sy * width + sx
-  mask[sy * width + sx] = 1
+  queue[tail++] = start
+  mask[start] = 1
   filled = 1
 
   while (head < tail) {
@@ -184,12 +229,7 @@ function floodFillMask(
     const x = flat % width
     const y = Math.floor(flat / width)
 
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
+    for (const [dx, dy] of EIGHT_DIRECTIONS) {
       const nx = x + dx
       const ny = y + dy
       if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
@@ -224,6 +264,58 @@ function floodFillMask(
   }
 
   return filled > 0 ? mask : null
+}
+
+function morphPass(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  dilate: boolean,
+): Uint8Array {
+  const next = new Uint8Array(mask.length)
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x
+      let keep = mask[index] === 1
+      if (dilate) {
+        if (!keep) {
+          for (const [dx, dy] of EIGHT_DIRECTIONS) {
+            const nx = x + dx
+            const ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+            if (mask[ny * width + nx]) {
+              keep = true
+              break
+            }
+          }
+        }
+      } else if (keep) {
+        for (const [dx, dy] of EIGHT_DIRECTIONS) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height || !mask[ny * width + nx]) {
+            keep = false
+            break
+          }
+        }
+      }
+      next[index] = keep ? 1 : 0
+    }
+  }
+
+  return next
+}
+
+function closeMaskGaps(mask: Uint8Array, width: number, height: number): Uint8Array {
+  let closed = mask
+  for (let pass = 0; pass < CLOSE_RADIUS; pass += 1) {
+    closed = morphPass(closed, width, height, true)
+  }
+  for (let pass = 0; pass < CLOSE_RADIUS; pass += 1) {
+    closed = morphPass(closed, width, height, false)
+  }
+  return closed
 }
 
 function fillInternalHoles(mask: Uint8Array, width: number, height: number): void {
@@ -370,12 +462,7 @@ function isBoundaryPixel(
 ): boolean {
   if (!mask[y * width + x]) return false
 
-  for (const [dx, dy] of [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ]) {
+  for (const [dx, dy] of CARDINAL) {
     const nx = x + dx
     const ny = y + dy
     if (nx < 0 || ny < 0 || nx >= width || ny >= height) return true
@@ -501,15 +588,16 @@ export function magicWandSelection(
   const edgeThreshold = options.edgeThreshold ?? getMagicWandEdgeThreshold(colorTolerance)
   const simplifyEpsilon = options.simplifyEpsilon ?? 2.5
 
-  const mask = floodFillMask(
+  const filled = floodFillMask(
     imageData,
     seedX,
     seedY,
     colorTolerance,
     edgeThreshold,
   )
-  if (!mask) return null
+  if (!filled) return null
 
+  const mask = closeMaskGaps(filled, imageData.width, imageData.height)
   fillInternalHoles(mask, imageData.width, imageData.height)
   if (!isUsableMask(mask, imageData.width, imageData.height, colorTolerance)) return null
 
@@ -534,4 +622,38 @@ export function magicWandSelection(
 
 export function getMagicWandEdgeThreshold(colorTolerance: number): number {
   return Math.round(14 + colorTolerance * 0.45)
+}
+
+export function scaleMagicWandHit(
+  hit: MagicWandHit,
+  destWidth: number,
+  destHeight: number,
+  simplifyEpsilon = 2.5,
+): MagicWandHit {
+  if (hit.width === destWidth && hit.height === destHeight) return hit
+
+  const scaleX = destWidth / hit.width
+  const scaleY = destHeight / hit.height
+  const scaledPoints = hit.points.map((point) => ({
+    x: point.x * scaleX,
+    y: point.y * scaleY,
+  }))
+  const simplified = simplifyPath(scaledPoints, simplifyEpsilon)
+  const points = simplified.length >= 3 ? simplified : scaledPoints
+
+  const mask = new Uint8Array(destWidth * destHeight)
+  for (let y = 0; y < destHeight; y += 1) {
+    const srcY = Math.min(hit.height - 1, Math.round(y / scaleY))
+    for (let x = 0; x < destWidth; x += 1) {
+      const srcX = Math.min(hit.width - 1, Math.round(x / scaleX))
+      mask[y * destWidth + x] = hit.mask[srcY * hit.width + srcX]
+    }
+  }
+
+  return {
+    points,
+    mask,
+    width: destWidth,
+    height: destHeight,
+  }
 }

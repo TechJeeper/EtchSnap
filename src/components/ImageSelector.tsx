@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Point, Selection, SelectionPath, SelectionTool } from '../types'
 import { isValidRegion } from '../lib/imageUtils'
-import { getMagicWandEdgeThreshold, magicWandSelection } from '../lib/magicWand'
+import { getMagicWandEdgeThreshold, magicWandSelection, scaleMagicWandHit } from '../lib/magicWand'
 import { mergeSelectionRegions } from '../lib/selectionMerge'
 
 interface ImageSelectorProps {
@@ -89,7 +89,7 @@ export function ImageSelector({
   const containerRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imageDataRef = useRef<ImageData | null>(null)
+  const sourceImageDataRef = useRef<ImageData | null>(null)
   const shiftHeldRef = useRef(false)
   const [baseDisplaySize, setBaseDisplaySize] = useState({ width: 0, height: 0 })
   const [zoom, setZoom] = useState(1)
@@ -158,6 +158,26 @@ export function ImageSelector({
   }, [])
 
   useEffect(() => {
+    if (!image) {
+      sourceImageDataRef.current = null
+      return
+    }
+
+    const source = document.createElement('canvas')
+    source.width = image.naturalWidth
+    source.height = image.naturalHeight
+    const sourceCtx = source.getContext('2d', { willReadFrequently: true })
+    if (!sourceCtx) return
+    sourceCtx.drawImage(image, 0, 0)
+    sourceImageDataRef.current = sourceCtx.getImageData(
+      0,
+      0,
+      image.naturalWidth,
+      image.naturalHeight,
+    )
+  }, [image])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !image || baseDisplaySize.width === 0) return
 
@@ -168,7 +188,6 @@ export function ImageSelector({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(image, 0, 0, baseDisplaySize.width, baseDisplaySize.height)
-    imageDataRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
 
     selection?.regions.forEach((region) => {
       if (region.points.length > 0) {
@@ -242,25 +261,27 @@ export function ImageSelector({
   }
 
   const handleWandClick = (point: Point, append: boolean) => {
-    const imageData = imageDataRef.current
-    if (!imageData) {
+    const imageData = sourceImageDataRef.current
+    if (!imageData || baseDisplaySize.width === 0 || baseDisplaySize.height === 0) {
       setWandError('Could not read the photo pixels. Try uploading again.')
       return
     }
 
-    const hit = magicWandSelection(imageData, point.x, point.y, {
+    const seedX = (point.x / baseDisplaySize.width) * imageData.width
+    const seedY = (point.y / baseDisplaySize.height) * imageData.height
+    const nativeHit = magicWandSelection(imageData, seedX, seedY, {
       colorTolerance: wandTolerance,
       edgeThreshold: getMagicWandEdgeThreshold(wandTolerance),
     })
 
-    if (!hit) {
+    if (!nativeHit) {
       setWandError(
         'Could not detect a bounded surface there. Click the object itself (not the pegboard/background), or adjust sensitivity.',
       )
-      if (!append) onSelectionChange(null)
       return
     }
 
+    const hit = scaleMagicWandHit(nativeHit, baseDisplaySize.width, baseDisplaySize.height)
     const closedPath: SelectionPath = {
       points: hit.points,
       closed: true,
@@ -268,7 +289,14 @@ export function ImageSelector({
       maskWidth: hit.width,
       maskHeight: hit.height,
     }
-    if (!applyRegion(closedPath, append)) {
+    const mergeGap = Math.max(MIN_MAGIC_WAND_MERGE_GAP, wandTolerance * MAGIC_WAND_MERGE_GAP_RATIO)
+    const shouldGrow =
+      !append &&
+      !!selection?.regions.length &&
+      mergeSelectionRegions(selection.regions, closedPath, { mergeNearbyGap: mergeGap }).length <=
+        selection.regions.length
+
+    if (!applyRegion(closedPath, append || shouldGrow)) {
       setWandError('That area is too small. Click a larger surface or lower sensitivity.')
       return
     }
@@ -471,7 +499,7 @@ export function ImageSelector({
           </div>
           <p className="canvas-hint">
             {tool === 'wand'
-              ? 'Click a surface to select it. Hold Shift and click to add another region. Zoom in for precise edges; raise sensitivity if the fill stops too early.'
+              ? 'Click a surface to select it. Click nearby to add more of the same object. Hold Shift to add a separate region. Zoom in for precise edges; raise sensitivity if the fill stops too early.'
               : isDrawing
                 ? nearStart
                   ? ' Click the first point to close the shape. Hold Shift while closing to add another region.'
