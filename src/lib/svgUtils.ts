@@ -1,6 +1,6 @@
 import ImageTracer from 'imagetracerjs'
 import type { OutputMode } from '../types.ts'
-import { cleanupLaserInk, LASER_INK_MAX_LUMINANCE } from './laserCleanup.ts'
+import { LASER_INK_MAX_LUMINANCE } from './laserCleanup.ts'
 import {
   imageDataToDataUrl,
   loadImageDataFromDataUrl,
@@ -76,6 +76,21 @@ function createEmbeddedSvg(dataUrl: string, width: number, height: number): stri
   ].join('\n')
 }
 
+/** Map laser pixels to opaque black ink on white paper. Do not treat every
+ * opaque pixel as ink — that paints the paper black and traces a solid plate. */
+export function flattenLaserTracePaper(data: Uint8ClampedArray): void {
+  for (let i = 0; i < data.length; i += 4) {
+    const ink =
+      data[i + 3] >= 30 &&
+      0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2] < LASER_INK_MAX_LUMINANCE
+    const value = ink ? 0 : 255
+    data[i] = value
+    data[i + 1] = value
+    data[i + 2] = value
+    data[i + 3] = 255
+  }
+}
+
 function upsampleNearest(source: ImageData, scale: number): ImageData {
   if (scale <= 1) return source
   const width = source.width * scale
@@ -135,21 +150,7 @@ function prepareTraceImageData(
   }
 
   if (mode === 'laser') {
-    cleanupLaserInk(prepared, { polarity: false })
-    const cleaned = prepared.data
-    for (let i = 0; i < cleaned.length; i += 4) {
-      if (cleaned[i + 3] < 30) {
-        cleaned[i] = 255
-        cleaned[i + 1] = 255
-        cleaned[i + 2] = 255
-        cleaned[i + 3] = 255
-      } else {
-        cleaned[i] = 0
-        cleaned[i + 1] = 0
-        cleaned[i + 2] = 0
-        cleaned[i + 3] = 255
-      }
-    }
+    flattenLaserTracePaper(prepared.data)
   }
 
   return prepared
@@ -161,9 +162,10 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
       ? {
           ltres: 2,
           qtres: 2,
-          pathomit: 24,
+          pathomit: 8,
           colorsampling: 0,
           numberofcolors: 2,
+          colorquantcycles: 1,
           mincolorratio: 0,
           pal: [
             { r: 0, g: 0, b: 0, a: 255 },

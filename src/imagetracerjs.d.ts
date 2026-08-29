@@ -5,6 +5,7 @@ declare module 'imagetracerjs' {
     pathomit?: number
     colorsampling?: number
     numberofcolors?: number
+    colorquantcycles?: number
     mincolorratio?: number
     pal?: Array<{ r: number; g: number; b: number; a: number }>
     strokewidth?: number
