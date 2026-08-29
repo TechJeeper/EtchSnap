@@ -32,7 +32,7 @@ export function buildComplexityInstructions(complexity: number): string {
 function modeInstructions(mode: OutputMode): string {
   return mode === 'uv'
     ? `Use full vibrant color suitable for UV printing. Clean edges. Still draw complete objects, not a tiled texture.`
-    : `Draw high-contrast black artwork with internal holes and gaps (gear teeth, gauge faces, spaces between parts). Do NOT flood-fill the entire stencil as one solid black shape. Motifs can be solid black, but the overall design must keep negative space.`
+    : `Draw high-contrast BLACK artwork on the light-gray stencil (magenta stays magenta). The laser etches black pixels only. Do NOT invert the design: never fill the whole silhouette black and leave the artwork as white or transparent cutouts. Do NOT flood-fill the entire stencil as one solid black shape. Motifs can be solid black with holes, but the overall design must keep negative space around them.`
 }
 
 function partLine(partCount: number): string {

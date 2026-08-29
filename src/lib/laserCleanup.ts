@@ -56,7 +56,141 @@ export function despeckleInk(image: PixelImage, minArea = 16): number {
   return removed
 }
 
+function paintInk(data: Uint8ClampedArray, index: number): void {
+  data[index] = 0
+  data[index + 1] = 0
+  data[index + 2] = 0
+  data[index + 3] = 255
+}
+
+function compactness(pixels: number[], width: number, height: number): number {
+  const inSet = new Uint8Array(width * height)
+  for (const i of pixels) inSet[i] = 1
+
+  let perimeter = 0
+  for (const i of pixels) {
+    const x = i % width
+    const y = Math.floor(i / width)
+    if (x === 0 || !inSet[i - 1]) perimeter += 1
+    if (x + 1 >= width || !inSet[i + 1]) perimeter += 1
+    if (y === 0 || !inSet[i - width]) perimeter += 1
+    if (y + 1 >= height || !inSet[i + width]) perimeter += 1
+  }
+
+  if (perimeter === 0) return 1
+  return (4 * Math.PI * pixels.length) / (perimeter * perimeter)
+}
+
+function enclosedLooksLikeCutLines(image: PixelImage, exterior: Uint8Array): boolean {
+  const { width, height, data } = image
+  const seen = new Uint8Array(width * height)
+  let enclosed = 0
+  let lineLike = 0
+
+  for (let start = 0; start < width * height; start += 1) {
+    if (seen[start] || exterior[start] || isInk(data, start * 4)) continue
+
+    const stack = [start]
+    const pixels: number[] = []
+    seen[start] = 1
+
+    while (stack.length > 0) {
+      const i = stack.pop()
+      if (i === undefined) break
+      pixels.push(i)
+      const x = i % width
+      const y = Math.floor(i / width)
+      const next = [i - 1, i + 1, i - width, i + width]
+      const valid = [x > 0, x + 1 < width, y > 0, y + 1 < height]
+      for (let n = 0; n < 4; n += 1) {
+        if (!valid[n]) continue
+        const ni = next[n]
+        if (seen[ni] || exterior[ni] || isInk(data, ni * 4)) continue
+        seen[ni] = 1
+        stack.push(ni)
+      }
+    }
+
+    enclosed += pixels.length
+    if (compactness(pixels, width, height) < 0.22) lineLike += pixels.length
+  }
+
+  return enclosed > 0 && lineLike / enclosed >= 0.5
+}
+
+export function normalizeLaserPolarity(image: PixelImage, fillThreshold = 0.45): boolean {
+  const { width, height, data } = image
+  const exterior = markExterior(image)
+  let interior = 0
+  let ink = 0
+
+  for (let i = 0; i < width * height; i += 1) {
+    if (exterior[i]) continue
+    interior += 1
+    if (isInk(data, i * 4)) ink += 1
+  }
+
+  const enclosed = interior - ink
+  if (interior === 0 || enclosed / interior < 0.05) return false
+  if (ink / interior <= fillThreshold) return false
+  if (!enclosedLooksLikeCutLines(image, exterior)) return false
+
+  invertLaserInterior(image)
+  return true
+}
+
+function markExterior(image: PixelImage): Uint8Array {
+  const { width, height, data } = image
+  const exterior = new Uint8Array(width * height)
+  const stack: number[] = []
+
+  const tryPush = (x: number, y: number): void => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return
+    const i = y * width + x
+    if (exterior[i] || isInk(data, i * 4)) return
+    exterior[i] = 1
+    stack.push(i)
+  }
+
+  for (let x = 0; x < width; x += 1) {
+    tryPush(x, 0)
+    tryPush(x, height - 1)
+  }
+  for (let y = 0; y < height; y += 1) {
+    tryPush(0, y)
+    tryPush(width - 1, y)
+  }
+
+  while (stack.length > 0) {
+    const i = stack.pop()
+    if (i === undefined) break
+    const x = i % width
+    const y = Math.floor(i / width)
+    tryPush(x - 1, y)
+    tryPush(x + 1, y)
+    tryPush(x, y - 1)
+    tryPush(x, y + 1)
+  }
+
+  return exterior
+}
+
+export function invertLaserInterior(image: PixelImage): void {
+  const { width, height, data } = image
+  const exterior = markExterior(image)
+
+  for (let i = 0; i < width * height; i += 1) {
+    if (exterior[i]) {
+      clearPixel(data, i * 4)
+      continue
+    }
+    if (isInk(data, i * 4)) clearPixel(data, i * 4)
+    else paintInk(data, i * 4)
+  }
+}
+
 export function cleanupLaserInk(image: PixelImage): void {
   const minArea = Math.max(16, Math.round(image.width * image.height * 0.00008))
   despeckleInk(image, minArea)
+  normalizeLaserPolarity(image)
 }

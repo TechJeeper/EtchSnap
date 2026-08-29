@@ -27,8 +27,9 @@ export function buildEnhancePrompt(
       ? `This is for a full-color UV print graphic: a decal that will be printed onto a real object later.
 Use a limited bold color palette, solid color blocking, and clean edges.
 Do not describe photorealism, painterly shading, cinematic lighting, or photographic texture.`
-      : `This is for a laser-engraving graphic: solid black artwork burned into a real object later.
-Describe only solid filled black shapes, thick readable lines, and high-contrast silhouettes.
+      : `This is for a laser-engraving graphic: black marks burned into a real object later.
+Describe only solid filled black shapes, thick readable lines, and high-contrast silhouettes on a clear background.
+The design itself is black; empty space is not engraved. Do not describe a filled black plate with the design cut out in white.
 Compose it to fill a selected surface, not as a centered square logo or stamp.
 Do not describe gray, gradients, color, fine hairlines, or photorealistic shading.`
 
