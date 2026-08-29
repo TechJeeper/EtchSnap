@@ -113,6 +113,35 @@ function testNormalizeDoesNotReInvertLineArt(): void {
   assert(isInk(image, 12, 8), 'contour strokes should stay ink')
 }
 
+function countInk(image: PixelImage): number {
+  let count = 0
+  for (let i = 3; i < image.data.length; i += 4) {
+    if (image.data[i] > 30) count += 1
+  }
+  return count
+}
+
+function testBridgeDoesNotFillCorridorBetweenStrokes(): void {
+  const image = createImage(20, 12)
+  fillInkRect(image, 2, 2, 16, 1)
+  fillInkRect(image, 2, 4, 16, 1)
+  assert(bridgeInkGaps(image) === 0, 'a 1px channel between two long strokes must not be filled')
+  assert(!isInk(image, 8, 3), 'corridor pixel should stay empty')
+}
+
+function testCleanupDoesNotFuseContoursIntoAPlate(): void {
+  const image = createImage(40, 24)
+  fillInkRect(image, 4, 4, 32, 16)
+  for (let y = 8; y <= 16; y += 2) {
+    for (let x = 8; x <= 30; x += 1) clearInk(image, x, y, 1, 1)
+  }
+  cleanupLaserInk(image)
+  const ink = countInk(image)
+  assert(ink < 32 * 16 * 0.55, `contour cleanup must not refill the plate, ink ${ink}`)
+  assert(isInk(image, 12, 8), 'contour strokes should remain')
+  assert(!isInk(image, 6, 6), 'former fill should stay empty')
+}
+
 function testBridgeReconnectsDashedStroke(): void {
   const image = createImage(24, 8)
   fillInkRect(image, 2, 3, 7, 2)
@@ -148,6 +177,8 @@ const tests = [
   ['normalize inverts speckled plate', testNormalizeInvertsSpeckledPlate],
   ['normalize leaves solid motif with hole', testNormalizeLeavesSolidMotifWithHole],
   ['normalize does not re-invert line art', testNormalizeDoesNotReInvertLineArt],
+  ['bridge does not fill corridor between strokes', testBridgeDoesNotFillCorridorBetweenStrokes],
+  ['cleanup does not fuse contours into a plate', testCleanupDoesNotFuseContoursIntoAPlate],
   ['bridge reconnects dashed stroke', testBridgeReconnectsDashedStroke],
   ['cleanup without polarity leaves line art', testCleanupWithoutPolarityLeavesLineArt],
   ['normalize leaves line art alone', testNormalizeLeavesLineArtAlone],

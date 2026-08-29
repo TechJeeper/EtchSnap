@@ -2,16 +2,6 @@ import type { PixelImage } from './isolateArtwork.ts'
 
 const INK_ALPHA = 30
 export const LASER_INK_MAX_LUMINANCE = 168
-const EIGHT_DIRECTIONS = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-  [1, 1],
-  [1, -1],
-  [-1, 1],
-  [-1, -1],
-] as const
 
 function isInk(data: Uint8ClampedArray, index: number): boolean {
   if (data[index + 3] < INK_ALPHA) return false
@@ -310,53 +300,39 @@ export function invertLaserInterior(image: PixelImage): void {
   }
 }
 
-function closeInkGaps(image: PixelImage): void {
-  const { width, height, data } = image
-  const ink = new Uint8Array(width * height)
-  for (let i = 0; i < width * height; i += 1) {
-    ink[i] = isInk(data, i * 4) ? 1 : 0
+function patternedEmptyRun(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  alongX: boolean,
+): number {
+  const matches = (cx: number, cy: number): boolean => {
+    if (cx < 0 || cy < 0 || cx >= width || cy >= height) return false
+    const index = (cy * width + cx) * 4
+    if (isInk(data, index)) return false
+    if (alongX) {
+      if (cy === 0 || cy + 1 >= height) return false
+      return isInk(data, (index - width * 4)) && isInk(data, (index + width * 4))
+    }
+    if (cx === 0 || cx + 1 >= width) return false
+    return isInk(data, index - 4) && isInk(data, index + 4)
   }
 
-  const dilated = new Uint8Array(width * height)
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x
-      let keep = ink[index] === 1
-      if (!keep) {
-        for (const [dx, dy] of EIGHT_DIRECTIONS) {
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
-          if (ink[ny * width + nx]) {
-            keep = true
-            break
-          }
-        }
-      }
-      dilated[index] = keep ? 1 : 0
-    }
+  if (!matches(x, y)) return 0
+  let count = 1
+  if (alongX) {
+    for (let cx = x - 1; matches(cx, y); cx -= 1) count += 1
+    for (let cx = x + 1; matches(cx, y); cx += 1) count += 1
+  } else {
+    for (let cy = y - 1; matches(x, cy); cy -= 1) count += 1
+    for (let cy = y + 1; matches(x, cy); cy += 1) count += 1
   }
-
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const index = y * width + x
-      let keep = dilated[index] === 1
-      if (keep) {
-        for (const [dx, dy] of EIGHT_DIRECTIONS) {
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || ny < 0 || nx >= width || ny >= height || !dilated[ny * width + nx]) {
-            keep = false
-            break
-          }
-        }
-      }
-      const pixel = index * 4
-      if (keep) paintInk(data, pixel)
-      else clearPixel(data, pixel)
-    }
-  }
+  return count
 }
+
+const MAX_STROKE_GAP = 3
 
 export function bridgeInkGaps(image: PixelImage): number {
   const { width, height, data } = image
@@ -370,11 +346,11 @@ export function bridgeInkGaps(image: PixelImage): number {
       const right = isInk(data, (i + 1) * 4)
       const up = isInk(data, (i - width) * 4)
       const down = isInk(data, (i + width) * 4)
-      const ul = isInk(data, (i - width - 1) * 4)
-      const ur = isInk(data, (i - width + 1) * 4)
-      const dl = isInk(data, (i + width - 1) * 4)
-      const dr = isInk(data, (i + width + 1) * 4)
-      if ((left && right) || (up && down) || (ul && dr) || (ur && dl)) {
+      const horizontalDash = left && right && !up && !down
+      const verticalDash = up && down && !left && !right
+      if (horizontalDash && patternedEmptyRun(data, width, height, x, y, false) <= MAX_STROKE_GAP) {
+        toFill.push(i)
+      } else if (verticalDash && patternedEmptyRun(data, width, height, x, y, true) <= MAX_STROKE_GAP) {
         toFill.push(i)
       }
     }
@@ -391,11 +367,7 @@ export interface CleanupLaserOptions {
 export function cleanupLaserInk(image: PixelImage, options: CleanupLaserOptions = {}): void {
   const polarity = options.polarity !== false
   despeckleInk(image, 8)
-  if (polarity) {
-    const inverted = normalizeLaserPolarity(image)
-    if (inverted) closeInkGaps(image)
-  }
-  bridgeInkGaps(image)
+  if (polarity) normalizeLaserPolarity(image)
   bridgeInkGaps(image)
   despeckleInk(image, 8)
 }
