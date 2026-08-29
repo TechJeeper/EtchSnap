@@ -28,10 +28,10 @@ export function buildEnhancePrompt(
 Use a limited bold color palette, solid color blocking, and clean edges.
 Do not describe photorealism, painterly shading, cinematic lighting, or photographic texture.`
       : `This is for a laser-engraving graphic: black marks burned into a real object later.
-Describe only solid filled black shapes, thick readable lines, and high-contrast silhouettes on a clear background.
+Describe only continuous black strokes and solid filled shapes on a clear background, thick enough to engrave (no hairlines).
 The design itself is black; empty space is not engraved. Do not describe a filled black plate with the design cut out in white.
 Compose it to fill a selected surface, not as a centered square logo or stamp.
-Do not describe gray, gradients, color, fine hairlines, or photorealistic shading.`
+Do not describe stipple, dithering, sketchy dashes, gray, gradients, color, or photorealistic shading.`
 
   return `Rewrite the user's design idea into a short production brief for printable artwork.
 

@@ -3,7 +3,7 @@ import { removeFrameBorder, stripOuterEdgePixels } from './borderRemoval'
 import { isChromaKeyColor, isMagentaFamily } from './chromaKey'
 import { isolateArtwork } from './isolateArtwork'
 import { fitDesignToMask } from './fitToMask'
-import { cleanupLaserInk } from './laserCleanup'
+import { cleanupLaserInk, LASER_INK_MAX_LUMINANCE } from './laserCleanup'
 import { imageDataToDataUrl, trimImageData } from './trimUtils'
 
 export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
@@ -222,7 +222,7 @@ export async function postProcessDesign(
         data[i + 3] = 0
         continue
       }
-      const ink = luminance < 140 ? 0 : 255
+      const ink = luminance < LASER_INK_MAX_LUMINANCE ? 0 : 255
       data[i] = ink
       data[i + 1] = ink
       data[i + 2] = ink
@@ -248,6 +248,21 @@ export async function postProcessDesign(
     if (!fittedCtx) throw new Error('Could not create canvas context')
     const fittedData = fittedCtx.createImageData(fitted.width, fitted.height)
     fittedData.data.set(fitted.data)
+    if (mode === 'laser') {
+      const pixels = fittedData.data
+      for (let i = 0; i < pixels.length; i += 4) {
+        if (pixels[i + 3] < 16) {
+          pixels[i + 3] = 0
+          continue
+        }
+        const luminance = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]
+        const ink = luminance < LASER_INK_MAX_LUMINANCE ? 0 : 255
+        pixels[i] = ink
+        pixels[i + 1] = ink
+        pixels[i + 2] = ink
+        pixels[i + 3] = ink === 255 ? 0 : 255
+      }
+    }
     fittedCtx.putImageData(fittedData, 0, 0)
     return imageDataToDataUrl(fittedData)
   }

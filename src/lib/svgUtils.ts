@@ -1,6 +1,6 @@
 import ImageTracer from 'imagetracerjs'
 import type { OutputMode } from '../types.ts'
-import { cleanupLaserInk } from './laserCleanup.ts'
+import { cleanupLaserInk, LASER_INK_MAX_LUMINANCE } from './laserCleanup.ts'
 import {
   imageDataToDataUrl,
   loadImageDataFromDataUrl,
@@ -29,7 +29,7 @@ function isLightFill(fill: string): boolean {
 function isLaserInkFill(fill: string): boolean {
   const rgb = parseRgb(fill)
   if (!rgb) return /#000/i.test(fill)
-  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < 140
+  return 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2] < LASER_INK_MAX_LUMINANCE
 }
 
 function rewritePathAttributes(pathTag: string, mode: OutputMode): string {
@@ -121,7 +121,7 @@ function prepareTraceImageData(
 
     if (mode === 'laser') {
       const luminance = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-      const ink = luminance < 140 ? 0 : 255
+      const ink = luminance < LASER_INK_MAX_LUMINANCE ? 0 : 255
       out[i] = ink
       out[i + 1] = ink
       out[i + 2] = ink
@@ -159,9 +159,9 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
   const options =
     mode === 'laser'
       ? {
-          ltres: 1,
-          qtres: 1,
-          pathomit: 8,
+          ltres: 2,
+          qtres: 2,
+          pathomit: 24,
           colorsampling: 0,
           numberofcolors: 2,
           mincolorratio: 0,

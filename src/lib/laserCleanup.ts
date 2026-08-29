@@ -1,10 +1,21 @@
 import type { PixelImage } from './isolateArtwork.ts'
 
 const INK_ALPHA = 30
+export const LASER_INK_MAX_LUMINANCE = 168
+const EIGHT_DIRECTIONS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+] as const
 
 function isInk(data: Uint8ClampedArray, index: number): boolean {
   if (data[index + 3] < INK_ALPHA) return false
-  return 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2] < 140
+  return 0.299 * data[index] + 0.587 * data[index + 1] + 0.114 * data[index + 2] < LASER_INK_MAX_LUMINANCE
 }
 
 function clearPixel(data: Uint8ClampedArray, index: number): void {
@@ -34,8 +45,26 @@ export function despeckleInk(image: PixelImage, minArea = 16): number {
         pixels.push(i)
         const cx = i % width
         const cy = Math.floor(i / width)
-        const next = [i - 1, i + 1, i - width, i + width]
-        const valid = [cx > 0, cx + 1 < width, cy > 0, cy + 1 < height]
+        const next = [
+          i - 1,
+          i + 1,
+          i - width,
+          i + width,
+          i - width - 1,
+          i - width + 1,
+          i + width - 1,
+          i + width + 1,
+        ]
+        const valid = [
+          cx > 0,
+          cx + 1 < width,
+          cy > 0,
+          cy + 1 < height,
+          cx > 0 && cy > 0,
+          cx + 1 < width && cy > 0,
+          cx > 0 && cy + 1 < height,
+          cx + 1 < width && cy + 1 < height,
+        ]
         for (let n = 0; n < 4; n += 1) {
           if (!valid[n]) continue
           const ni = next[n]
@@ -118,6 +147,51 @@ function enclosedLooksLikeCutLines(image: PixelImage, exterior: Uint8Array): boo
   return enclosed > 0 && lineLike / enclosed >= 0.5
 }
 
+function enclosedLooksLikeSpeckle(image: PixelImage, exterior: Uint8Array): boolean {
+  const { width, height, data } = image
+  const seen = new Uint8Array(width * height)
+  const areas: number[] = []
+
+  for (let start = 0; start < width * height; start += 1) {
+    if (seen[start] || exterior[start] || isInk(data, start * 4)) continue
+
+    const stack = [start]
+    let area = 0
+    seen[start] = 1
+
+    while (stack.length > 0) {
+      const i = stack.pop()
+      if (i === undefined) break
+      area += 1
+      const x = i % width
+      const y = Math.floor(i / width)
+      const next = [i - 1, i + 1, i - width, i + width]
+      const valid = [x > 0, x + 1 < width, y > 0, y + 1 < height]
+      for (let n = 0; n < 4; n += 1) {
+        if (!valid[n]) continue
+        const ni = next[n]
+        if (seen[ni] || exterior[ni] || isInk(data, ni * 4)) continue
+        seen[ni] = 1
+        stack.push(ni)
+      }
+    }
+
+    areas.push(area)
+  }
+
+  if (areas.length < 12) return false
+  areas.sort((a, b) => a - b)
+  const median = areas[Math.floor(areas.length / 2)]
+  const interior = width * height - countExterior(exterior)
+  return median < Math.max(6, interior * 0.008)
+}
+
+function countExterior(exterior: Uint8Array): number {
+  let count = 0
+  for (const value of exterior) if (value) count += 1
+  return count
+}
+
 export function normalizeLaserPolarity(image: PixelImage, fillThreshold = 0.45): boolean {
   const { width, height, data } = image
   const exterior = markExterior(image)
@@ -133,7 +207,12 @@ export function normalizeLaserPolarity(image: PixelImage, fillThreshold = 0.45):
   const enclosed = interior - ink
   if (interior === 0 || enclosed / interior < 0.05) return false
   if (ink / interior <= fillThreshold) return false
-  if (!enclosedLooksLikeCutLines(image, exterior)) return false
+  if (
+    !enclosedLooksLikeCutLines(image, exterior) &&
+    !enclosedLooksLikeSpeckle(image, exterior)
+  ) {
+    return false
+  }
 
   invertLaserInterior(image)
   return true
@@ -189,8 +268,57 @@ export function invertLaserInterior(image: PixelImage): void {
   }
 }
 
+function closeInkGaps(image: PixelImage): void {
+  const { width, height, data } = image
+  const ink = new Uint8Array(width * height)
+  for (let i = 0; i < width * height; i += 1) {
+    ink[i] = isInk(data, i * 4) ? 1 : 0
+  }
+
+  const dilated = new Uint8Array(width * height)
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x
+      let keep = ink[index] === 1
+      if (!keep) {
+        for (const [dx, dy] of EIGHT_DIRECTIONS) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+          if (ink[ny * width + nx]) {
+            keep = true
+            break
+          }
+        }
+      }
+      dilated[index] = keep ? 1 : 0
+    }
+  }
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x
+      let keep = dilated[index] === 1
+      if (keep) {
+        for (const [dx, dy] of EIGHT_DIRECTIONS) {
+          const nx = x + dx
+          const ny = y + dy
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height || !dilated[ny * width + nx]) {
+            keep = false
+            break
+          }
+        }
+      }
+      const pixel = index * 4
+      if (keep) paintInk(data, pixel)
+      else clearPixel(data, pixel)
+    }
+  }
+}
+
 export function cleanupLaserInk(image: PixelImage): void {
-  const minArea = Math.max(16, Math.round(image.width * image.height * 0.00008))
-  despeckleInk(image, minArea)
-  normalizeLaserPolarity(image)
+  despeckleInk(image, 8)
+  const inverted = normalizeLaserPolarity(image)
+  if (inverted) closeInkGaps(image)
+  despeckleInk(image, 8)
 }

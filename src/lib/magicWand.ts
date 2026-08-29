@@ -6,9 +6,8 @@ export interface MagicWandOptions {
   simplifyEpsilon?: number
 }
 
-const MAX_FILL_RATIO = 0.55
-const MAX_BOUNDS_RATIO = 0.78
-const HIGH_SENSITIVITY = 40
+const MAX_FILL_RATIO = 0.88
+const MAX_BOUNDS_RATIO = 0.96
 const SEED_RADIUS = 2
 const CLOSE_RADIUS = 1
 const CARDINAL = [
@@ -100,8 +99,38 @@ function sampleSeedColor(
   return [r / count, g / count, b / count]
 }
 
-function getStepTolerance(userTolerance: number): number {
-  return Math.max(16, userTolerance * 0.72)
+function sampleLocalContrast(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  seedX: number,
+  seedY: number,
+): number {
+  let sum = 0
+  let sumSq = 0
+  let count = 0
+
+  for (let dy = -3; dy <= 3; dy += 1) {
+    for (let dx = -3; dx <= 3; dx += 1) {
+      const x = seedX + dx
+      const y = seedY + dy
+      if (x < 0 || y < 0 || x >= width || y >= height) continue
+      const index = (y * width + x) * 4
+      if (data[index + 3] < 16) continue
+      const lum = luminance(data[index], data[index + 1], data[index + 2])
+      sum += lum
+      sumSq += lum * lum
+      count += 1
+    }
+  }
+
+  if (count < 4) return 0
+  const mean = sum / count
+  return Math.sqrt(Math.max(0, sumSq / count - mean * mean))
+}
+
+function getStepTolerance(userTolerance: number, texture = 0): number {
+  return Math.max(16, userTolerance * 0.72, texture * 1.8 + 12)
 }
 
 function stepBoundaryStrength(
@@ -154,7 +183,11 @@ function canExpandToNeighbor(
     return false
   }
 
-  if (rgbDistanceAt(data, parentIndex, neighborIndex) > stepTolerance) {
+  const lumStep = Math.abs(
+    luminance(data[parentIndex], data[parentIndex + 1], data[parentIndex + 2]) -
+      luminance(data[neighborIndex], data[neighborIndex + 1], data[neighborIndex + 2]),
+  )
+  if (lumStep > stepTolerance) {
     return false
   }
 
@@ -208,8 +241,10 @@ function floodFillMask(
   const sx = Math.max(0, Math.min(width - 1, Math.floor(seedX)))
   const sy = Math.max(0, Math.min(height - 1, Math.floor(seedY)))
   const [seedR, seedG, seedB] = sampleSeedColor(data, width, height, sx, sy)
-  const tolerance = colorTolerance
-  const stepTolerance = getStepTolerance(colorTolerance)
+  const texture = sampleLocalContrast(data, width, height, sx, sy)
+  const tolerance = Math.min(96, colorTolerance + texture * 1.4)
+  const stepTolerance = getStepTolerance(colorTolerance, texture)
+  const edgeLimit = Math.max(edgeThreshold, texture * 2.2 + 14)
   const start = findStartPixel(data, width, height, sx, sy, seedR, seedG, seedB, tolerance)
   if (start < 0) return null
 
@@ -217,12 +252,9 @@ function floodFillMask(
   const queue = new Int32Array(width * height)
   let head = 0
   let tail = 0
-  let filled = 0
-  const maxFill = Math.floor(width * height * MAX_FILL_RATIO)
 
   queue[tail++] = start
   mask[start] = 1
-  filled = 1
 
   while (head < tail) {
     const flat = queue[head++]
@@ -250,20 +282,18 @@ function floodFillMask(
           seedB,
           tolerance,
           stepTolerance,
-          edgeThreshold,
+          edgeLimit,
         )
       ) {
         continue
       }
 
       mask[next] = 1
-      filled += 1
-      if (filled > maxFill) return null
       queue[tail++] = next
     }
   }
 
-  return filled > 0 ? mask : null
+  return mask
 }
 
 function morphPass(
@@ -397,31 +427,18 @@ function getMaskBounds(
   return { minX, minY, maxX, maxY }
 }
 
-function countBorderTouches(mask: Uint8Array, width: number, height: number): number {
-  let left = false
-  let right = false
-  let top = false
-  let bottom = false
-
-  for (let x = 0; x < width; x += 1) {
-    if (mask[x]) top = true
-    if (mask[(height - 1) * width + x]) bottom = true
-  }
-  for (let y = 0; y < height; y += 1) {
-    if (mask[y * width]) left = true
-    if (mask[y * width + width - 1]) right = true
-  }
-
-  return [left, right, top, bottom].filter(Boolean).length
+function countFilledCorners(mask: Uint8Array, width: number, height: number): number {
+  const corners = [0, width - 1, (height - 1) * width, height * width - 1]
+  return corners.filter((index) => mask[index]).length
 }
 
 function isBackgroundLikeMask(mask: Uint8Array, width: number, height: number): boolean {
   const filled = countMaskPixels(mask)
   const fillRatio = filled / (width * height)
-  const borderTouches = countBorderTouches(mask, width, height)
+  const corners = countFilledCorners(mask, width, height)
 
-  if (borderTouches >= 3) return true
-  if (borderTouches >= 2 && fillRatio > 0.28) return true
+  if (corners >= 3) return true
+  if (corners >= 2 && fillRatio > 0.5) return true
   return false
 }
 
@@ -429,26 +446,20 @@ function isUsableMask(
   mask: Uint8Array,
   width: number,
   height: number,
-  colorTolerance: number,
+  _colorTolerance: number,
 ): boolean {
   const filled = countMaskPixels(mask)
   const total = width * height
-  const maxFillRatio =
-    colorTolerance >= HIGH_SENSITIVITY ? MAX_FILL_RATIO : Math.min(MAX_FILL_RATIO, 0.48)
-
-  if (filled === 0 || filled / total > maxFillRatio) return false
+  if (filled === 0 || filled / total > MAX_FILL_RATIO) return false
 
   const bounds = getMaskBounds(mask, width, height)
   if (!bounds) return false
 
   const boundsArea = (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1)
-  const maxBoundsRatio =
-    colorTolerance >= HIGH_SENSITIVITY ? MAX_BOUNDS_RATIO : Math.min(MAX_BOUNDS_RATIO, 0.74)
-
-  if (boundsArea / total > maxBoundsRatio) return false
-  if (colorTolerance < HIGH_SENSITIVITY && isBackgroundLikeMask(mask, width, height)) {
+  if (boundsArea / total > MAX_BOUNDS_RATIO && isBackgroundLikeMask(mask, width, height)) {
     return false
   }
+  if (isBackgroundLikeMask(mask, width, height)) return false
 
   return true
 }

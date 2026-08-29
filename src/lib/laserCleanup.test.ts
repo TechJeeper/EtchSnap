@@ -90,6 +90,17 @@ function testNormalizeLeavesSolidMotifWithHole(): void {
   assert(!isInk(image, 14, 12), 'compact hole should stay empty')
 }
 
+function testNormalizeInvertsSpeckledPlate(): void {
+  const image = createImage(48, 32)
+  fillInkRect(image, 4, 4, 40, 24)
+  for (let y = 8; y <= 24; y += 3) {
+    for (let x = 8; x <= 40; x += 3) clearInk(image, x, y, 1, 1)
+  }
+  assert(normalizeLaserPolarity(image), 'a filled plate with speckled cutouts should invert')
+  assert(!isInk(image, 6, 6), 'former fill should become transparent')
+  assert(isInk(image, 8, 8), 'former specks should become ink')
+}
+
 function testNormalizeLeavesLineArtAlone(): void {
   const image = createImage(40, 24)
   fillInkRect(image, 8, 6, 24, 2)
@@ -102,6 +113,7 @@ const tests = [
   ['despeckle removes dust keeps shape', testDespeckleRemovesDustKeepsShape],
   ['cleanup keeps separate shapes apart', testCleanupKeepsSeparateShapesApart],
   ['normalize inverts filled shape with cut lines', testNormalizeInvertsFilledShapeWithCutLines],
+  ['normalize inverts speckled plate', testNormalizeInvertsSpeckledPlate],
   ['normalize leaves solid motif with hole', testNormalizeLeavesSolidMotifWithHole],
   ['normalize leaves line art alone', testNormalizeLeavesLineArtAlone],
 ] as const

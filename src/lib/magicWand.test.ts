@@ -145,6 +145,33 @@ function testPegboardBackgroundIsRejected(): void {
   assert(!boardHit, 'clicking the pegboard should be rejected as background')
 }
 
+function testLayeredTextureObjectFillsCompletely(): void {
+  const image = createImageData(220, 120)
+  fillRect(image, 0, 0, 220, 120, 168, 92, 198)
+  for (let y = 24; y < 96; y += 1) {
+    const shade = y % 2 === 0 ? 48 : 72
+    for (let x = 18; x < 202; x += 1) {
+      setPixel(image, x, y, shade, shade, shade + 4)
+    }
+  }
+
+  const hit = magicWandSelection(image, 110, 60, { colorTolerance: 32 })
+  assert(!!hit, 'layered texture object should select')
+  assert(countMask(hit!.mask) > 184 * 72 * 0.8, 'fill should cross layer lines instead of stopping on one stripe')
+}
+
+function testObjectTouchingImageEdgesStillSelects(): void {
+  const image = createImageData(200, 100)
+  fillRect(image, 0, 0, 200, 100, 168, 92, 198)
+  fillRect(image, 0, 22, 200, 56, 40, 42, 48)
+
+  const hit = magicWandSelection(image, 100, 50, { colorTolerance: 32 })
+  assert(!!hit, 'an object that spans the frame should still select')
+  assert(!!hit!.mask[50 * image.width + 10], 'left edge of the object should be included')
+  assert(!!hit!.mask[50 * image.width + 190], 'right edge of the object should be included')
+  assert(!hit!.mask[5 * image.width + 5], 'corners of the photo should stay unselected')
+}
+
 function testSeparateObjectStaysSeparate(): void {
   const image = createImageData(240, 100)
   fillRect(image, 0, 0, 240, 100, 180, 90, 200)
@@ -162,6 +189,8 @@ const tests = [
   ['specular click does not collapse fill', testSpecularClickDoesNotCollapseFill],
   ['object does not leak into background', testObjectDoesNotLeakIntoBackground],
   ['pegboard background is rejected', testPegboardBackgroundIsRejected],
+  ['layered texture object fills completely', testLayeredTextureObjectFillsCompletely],
+  ['object touching image edges still selects', testObjectTouchingImageEdgesStillSelects],
   ['separate object stays separate', testSeparateObjectStaysSeparate],
 ] as const
 
