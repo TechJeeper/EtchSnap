@@ -1,4 +1,4 @@
-import { flattenLaserTracePaper, sanitizeSvg } from './svgUtils.ts'
+import { flattenLaserTracePaper, laserTraceScale, sanitizeSvg } from './svgUtils.ts'
 import type { PixelImage } from './isolateArtwork.ts'
 
 function assert(condition: boolean, message: string): void {
@@ -78,6 +78,12 @@ function testFlattenKeepsDashedSpeckleFromPng(): void {
   assert(!isInk(image, 5, 5), 'paper around speckle must stay white')
 }
 
+function testLaserTraceScaleTargetsHighRes(): void {
+  assert(laserTraceScale(1024, 300) === 2, '1024px artwork should trace at 2x')
+  assert(laserTraceScale(457, 133) === 4, 'a small crop should upscale more before tracing')
+  assert(laserTraceScale(2048, 600) === 1, 'already-high-res artwork should not balloon')
+}
+
 function testLaserSvgPunchesHolesAndDropsStroke(): void {
   const svg = [
     '<svg width="10" height="10">',
@@ -97,6 +103,7 @@ function testLaserSvgPunchesHolesAndDropsStroke(): void {
 const tests = [
   ['flatten keeps white paper around line art', testFlattenKeepsWhitePaperAroundLineArt],
   ['flatten keeps dashed speckle from png', testFlattenKeepsDashedSpeckleFromPng],
+  ['laser trace scale targets high res', testLaserTraceScaleTargetsHighRes],
   ['laser svg punches holes and drops stroke', testLaserSvgPunchesHolesAndDropsStroke],
 ] as const
 

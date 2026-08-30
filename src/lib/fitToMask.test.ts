@@ -5,6 +5,7 @@ import {
   createSilhouetteReference,
   fitDesignToMask,
   looksLikeStencilEdit,
+  outputMaskForDesign,
   prepareEditTemplate,
   stencilRespectScore,
 } from './fitToMask.ts'
@@ -55,6 +56,23 @@ function sample(image: PixelImage, x: number, y: number) {
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message)
+}
+
+function testOutputMaskKeepsGeneratedResolution(): void {
+  const mask = createImage(40, 20)
+  fillRect(mask, 4, 4, 32, 12, 10, 10, 10, 255)
+  fillRect(mask, 16, 8, 8, 4, 0, 0, 0, 0)
+
+  const design = createImage(80, 40, 0, 0, 0, 255)
+  const outputMask = outputMaskForDesign(mask, design, 80)
+  assert(outputMask.width === 80 && outputMask.height === 40, 'mask should match the generated long side')
+  assert(sample(outputMask, 2, 2).a === 0, 'outside the selection must stay empty after upscale')
+  assert(sample(outputMask, 40, 20).a === 0, 'holes must stay empty after upscale')
+  assert(sample(outputMask, 20, 16).a > 200, 'selected interior must stay opaque after upscale')
+
+  const fitted = fitDesignToMask(design, outputMask, 'nearest')
+  assert(fitted.width === 80 && fitted.height === 40, 'clipped design must keep generated resolution')
+  assert(sample(fitted, 20, 16).a > 200, 'artwork pixels must survive instead of being downsampled')
 }
 
 function testSameFramingClipKeepsHolesEmpty(): void {
@@ -151,6 +169,7 @@ function testCountStencilRegionsSplitsLetters(): void {
 }
 
 const tests = [
+  ['output mask keeps generated resolution', testOutputMaskKeepsGeneratedResolution],
   ['same framing clip keeps holes empty', testSameFramingClipKeepsHolesEmpty],
   ['edit template is coloring-book stencil', testEditTemplateIsColoringBookStencil],
   ['photo stencil keeps interior color', testPhotoStencilKeepsInteriorColor],

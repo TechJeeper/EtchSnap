@@ -2,7 +2,7 @@ import type { OutputMode, Point, Selection, SelectionPath } from '../types'
 import { removeFrameBorder, stripOuterEdgePixels } from './borderRemoval'
 import { isChromaKeyColor, isMagentaFamily } from './chromaKey'
 import { isolateArtwork } from './isolateArtwork'
-import { fitDesignToMask } from './fitToMask'
+import { fitDesignToMask, outputMaskForDesign } from './fitToMask'
 import { cleanupLaserInk, LASER_INK_MAX_LUMINANCE } from './laserCleanup'
 import { imageDataToDataUrl, trimImageData } from './trimUtils'
 
@@ -237,9 +237,10 @@ export async function postProcessDesign(
   ctx.putImageData(imageData, 0, 0)
 
   if (sourceImageData) {
+    const outputMask = outputMaskForDesign(sourceImageData, imageData)
     const fitted = fitDesignToMask(
       imageData,
-      sourceImageData,
+      outputMask,
       mode === 'laser' ? 'nearest' : 'bilinear',
     )
     canvas.width = fitted.width

@@ -104,10 +104,11 @@ export function scalePixelImage(image: PixelImage, scale: number): PixelImage {
   )
 }
 
-export function resizePixelImage(
+function resizePixelImageWith(
   image: PixelImage,
   width: number,
   height: number,
+  sample: (image: PixelImage, x: number, y: number) => [number, number, number, number],
 ): PixelImage {
   if (image.width === width && image.height === height) {
     return {
@@ -121,7 +122,7 @@ export function resizePixelImage(
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
-      const [r, g, b, a] = sampleBilinear(
+      const [r, g, b, a] = sample(
         image,
         ((x + 0.5) / width) * image.width - 0.5,
         ((y + 0.5) / height) * image.height - 0.5,
@@ -135,6 +136,37 @@ export function resizePixelImage(
   }
 
   return { data, width, height }
+}
+
+export function resizePixelImage(
+  image: PixelImage,
+  width: number,
+  height: number,
+): PixelImage {
+  return resizePixelImageWith(image, width, height, sampleBilinear)
+}
+
+export function resizePixelImageNearest(
+  image: PixelImage,
+  width: number,
+  height: number,
+): PixelImage {
+  return resizePixelImageWith(image, width, height, sampleNearest)
+}
+
+/** Clip at generated resolution instead of shrinking artwork onto the photo crop. */
+export function outputMaskForDesign(
+  mask: PixelImage,
+  design: PixelImage,
+  minLongSide = 1024,
+): PixelImage {
+  const maskLong = Math.max(mask.width, mask.height)
+  const designLong = Math.max(design.width, design.height)
+  const targetLong = Math.max(minLongSide, maskLong, designLong)
+  const scale = targetLong / maskLong
+  const width = Math.max(1, Math.round(mask.width * scale))
+  const height = Math.max(1, Math.round(mask.height * scale))
+  return resizePixelImageNearest(mask, width, height)
 }
 
 export function prepareStencilTemplate(

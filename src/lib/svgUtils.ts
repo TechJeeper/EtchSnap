@@ -8,7 +8,7 @@ import {
 } from './trimUtils.ts'
 
 const TRACE_PADDING = 2
-const LASER_TRACE_SCALE = 2
+const LASER_TRACE_LONG_SIDE = 2048
 
 function hasVectorPaths(svg: string): boolean {
   return /<path[\s>]/i.test(svg)
@@ -91,6 +91,12 @@ export function flattenLaserTracePaper(data: Uint8ClampedArray): void {
   }
 }
 
+export function laserTraceScale(width: number, height: number): number {
+  const longSide = Math.max(width, height)
+  if (longSide <= 0) return 1
+  return Math.max(1, Math.min(6, Math.round(LASER_TRACE_LONG_SIDE / longSide)))
+}
+
 function upsampleNearest(source: ImageData, scale: number): ImageData {
   if (scale <= 1) return source
   const width = source.width * scale
@@ -160,8 +166,8 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
   const options =
     mode === 'laser'
       ? {
-          ltres: 2,
-          qtres: 2,
+          ltres: 1,
+          qtres: 1,
           pathomit: 8,
           colorsampling: 0,
           numberofcolors: 2,
@@ -176,7 +182,7 @@ function runTrace(imageData: ImageData, mode: OutputMode): string {
           rightangleenhance: false,
           layering: 0,
           scale: 1,
-          roundcoords: 1,
+          roundcoords: 2,
           viewbox: true,
           desc: false,
         }
@@ -205,7 +211,9 @@ export async function pngToSvg(dataUrl: string, mode: OutputMode): Promise<strin
   const displayWidth = prepared.width
   const displayHeight = prepared.height
   const traceSource =
-    mode === 'laser' ? upsampleNearest(prepared, LASER_TRACE_SCALE) : prepared
+    mode === 'laser'
+      ? upsampleNearest(prepared, laserTraceScale(prepared.width, prepared.height))
+      : prepared
   const { width, height } = traceSource
 
   const tracedSvg = sanitizeSvg(
