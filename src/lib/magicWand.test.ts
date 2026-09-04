@@ -184,16 +184,37 @@ function testSeparateObjectStaysSeparate(): void {
   assert(!left!.mask[50 * image.width + 180], 'right bar must stay unselected')
 }
 
-function testTwoToneObjectSelectsAsOne(): void {
+function testTwoToneObjectSelectsHandleOnly(): void {
   const image = createImageData(140, 80)
   fillRect(image, 0, 0, 140, 80, 252, 252, 255)
   fillRect(image, 24, 22, 44, 32, 196, 148, 52)
   fillRect(image, 68, 22, 40, 32, 110, 114, 120)
 
-  const hit = magicWandSelection(image, 40, 38, { colorTolerance: 20 })
-  assert(!!hit, 'clicking the gold side should still find an object')
-  assert(!!hit!.mask[38 * image.width + 40], 'gold half should be selected')
-  assert(!!hit!.mask[38 * image.width + 90], 'gray half should be selected too')
+  const hit = magicWandSelection(image, 40, 38, { colorTolerance: 8 })
+  assert(!!hit, 'clicking the brass handle should select that surface')
+  assert(!!hit!.mask[38 * image.width + 40], 'brass handle should be selected')
+  assert(!hit!.mask[38 * image.width + 90], 'gray blade should stay unselected at low sensitivity')
+}
+
+function testTexturedBrassStopsAtBlade(): void {
+  const image = createImageData(160, 90)
+  fillRect(image, 0, 0, 160, 90, 255, 255, 255)
+  fillRect(image, 20, 24, 70, 42, 188, 142, 58)
+  fillRect(image, 90, 24, 48, 42, 108, 112, 118)
+
+  for (let y = 24; y < 66; y += 1) {
+    for (let x = 20; x < 90; x += 1) {
+      const noise = ((x * 13 + y * 31) % 17) - 8
+      const index = (y * image.width + x) * 4
+      image.data[index] = Math.max(0, Math.min(255, image.data[index] + noise * 3))
+      image.data[index + 1] = Math.max(0, Math.min(255, image.data[index + 1] + noise * 2))
+    }
+  }
+
+  const hit = magicWandSelection(image, 48, 44, { colorTolerance: 8 })
+  assert(!!hit, 'textured brass should still select')
+  assert(countMask(hit!.mask) > 70 * 42 * 0.55, 'handle grain should not collapse the fill')
+  assert(!hit!.mask[44 * image.width + 112], 'blade should stay outside a low-sensitivity handle fill')
 }
 
 function testWhiteBackgroundClickRejected(): void {
@@ -223,7 +244,8 @@ const tests = [
   ['layered texture object fills completely', testLayeredTextureObjectFillsCompletely],
   ['object touching image edges still selects', testObjectTouchingImageEdgesStillSelects],
   ['separate object stays separate', testSeparateObjectStaysSeparate],
-  ['two-tone object selects as one', testTwoToneObjectSelectsAsOne],
+  ['two-tone object selects handle only', testTwoToneObjectSelectsHandleOnly],
+  ['textured brass stops at blade', testTexturedBrassStopsAtBlade],
   ['white background click rejected', testWhiteBackgroundClickRejected],
   ['near-white object separates', testNearWhiteObjectSeparates],
 ] as const

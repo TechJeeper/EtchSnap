@@ -67,10 +67,6 @@ interface BackgroundSample {
   b: number
 }
 
-function clampByte(value: number): number {
-  return value < 0 ? 0 : value > 255 ? 255 : value
-}
-
 function cloneBuffer(image: PixelBuffer): PixelBuffer {
   return {
     data: new Uint8ClampedArray(image.data),
@@ -218,17 +214,7 @@ function separateFromBackground(
       data[index] = background.r
       data[index + 1] = background.g
       data[index + 2] = background.b
-      continue
     }
-
-    const push = 0.45 + Math.min(0.4, (distance - crushDistance) / 90)
-    data[index] = clampByte(background.r + (data[index] - background.r) * (1 + push))
-    data[index + 1] = clampByte(
-      background.g + (data[index + 1] - background.g) * (1 + push),
-    )
-    data[index + 2] = clampByte(
-      background.b + (data[index + 2] - background.b) * (1 + push),
-    )
   }
 }
 
@@ -243,67 +229,6 @@ function prepareWandPixels(
     separateFromBackground(work, background, 8 + colorTolerance * 0.16)
   }
   return work
-}
-
-function backgroundDistanceThreshold(colorTolerance: number): number {
-  return 18 + colorTolerance * 0.42
-}
-
-function floodObjectMask(
-  image: PixelBuffer,
-  seedX: number,
-  seedY: number,
-  background: BackgroundSample,
-  colorTolerance: number,
-): Uint8Array | null {
-  const { width, height, data } = image
-  const sx = Math.max(0, Math.min(width - 1, Math.floor(seedX)))
-  const sy = Math.max(0, Math.min(height - 1, Math.floor(seedY)))
-  const threshold = backgroundDistanceThreshold(colorTolerance)
-  const seedIndex = (sy * width + sx) * 4
-
-  if (data[seedIndex + 3] < 16) return null
-  if (colorDistanceAt(data, seedIndex, background.r, background.g, background.b) <= threshold) {
-    return null
-  }
-
-  const mask = new Uint8Array(width * height)
-  const queue = new Int32Array(width * height)
-  let head = 0
-  let tail = 0
-  const maxFill = Math.floor(width * height * MAX_FILL_RATIO)
-
-  queue[tail++] = sy * width + sx
-  mask[sy * width + sx] = 1
-
-  while (head < tail) {
-    const flat = queue[head++]
-    const x = flat % width
-    const y = Math.floor(flat / width)
-
-    for (const [dx, dy] of EIGHT_DIRECTIONS) {
-      const nx = x + dx
-      const ny = y + dy
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
-
-      const next = ny * width + nx
-      if (mask[next]) continue
-      const neighborIndex = next * 4
-      if (data[neighborIndex + 3] < 16) continue
-      if (
-        colorDistanceAt(data, neighborIndex, background.r, background.g, background.b) <=
-        threshold
-      ) {
-        continue
-      }
-
-      mask[next] = 1
-      if (tail + 1 > maxFill) return null
-      queue[tail++] = next
-    }
-  }
-
-  return tail > 0 ? mask : null
 }
 
 function sampleSeedColor(
@@ -900,30 +825,9 @@ export function magicWandSelection(
   }
   const background = detectUniformBackground(source)
   const prepared = prepareWandPixels(source, background, colorTolerance)
-  const preparedImage = prepared as ImageData
-
-  if (background) {
-    const objectMask = floodObjectMask(
-      prepared,
-      seedX,
-      seedY,
-      background,
-      colorTolerance,
-    )
-    if (objectMask) {
-      const hit = hitFromMask(
-        objectMask,
-        prepared.width,
-        prepared.height,
-        colorTolerance,
-        simplifyEpsilon,
-      )
-      if (hit) return hit
-    }
-  }
 
   const filled = floodFillMask(
-    preparedImage,
+    prepared as ImageData,
     seedX,
     seedY,
     colorTolerance,
