@@ -1,4 +1,4 @@
-import { magicWandSelection } from './magicWand.ts'
+﻿import { magicWandSelection } from './magicWand.ts'
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message)
@@ -184,6 +184,37 @@ function testSeparateObjectStaysSeparate(): void {
   assert(!left!.mask[50 * image.width + 180], 'right bar must stay unselected')
 }
 
+function testTwoToneObjectSelectsAsOne(): void {
+  const image = createImageData(140, 80)
+  fillRect(image, 0, 0, 140, 80, 252, 252, 255)
+  fillRect(image, 24, 22, 44, 32, 196, 148, 52)
+  fillRect(image, 68, 22, 40, 32, 110, 114, 120)
+
+  const hit = magicWandSelection(image, 40, 38, { colorTolerance: 20 })
+  assert(!!hit, 'clicking the gold side should still find an object')
+  assert(!!hit!.mask[38 * image.width + 40], 'gold half should be selected')
+  assert(!!hit!.mask[38 * image.width + 90], 'gray half should be selected too')
+}
+
+function testWhiteBackgroundClickRejected(): void {
+  const image = createImageData(100, 70)
+  fillRect(image, 0, 0, 100, 70, 255, 255, 255)
+  fillRect(image, 30, 18, 36, 28, 20, 24, 30)
+
+  const hit = magicWandSelection(image, 6, 6, { colorTolerance: 24 })
+  assert(!hit, 'clicking the white background should not select the canvas')
+}
+
+function testNearWhiteObjectSeparates(): void {
+  const image = createImageData(100, 72)
+  fillRect(image, 0, 0, 100, 72, 255, 255, 255)
+  fillRect(image, 26, 16, 46, 34, 214, 196, 168)
+
+  const hit = magicWandSelection(image, 48, 32, { colorTolerance: 32 })
+  assert(!!hit, 'a light object on white should still be found after contrast boost')
+  assert(countMask(hit!.mask) > 46 * 34 * 0.7, 'light object should keep most of its area')
+}
+
 const tests = [
   ['nearby clicks on noisy bar stay stable', testNearbyClicksOnNoisyBarStayStable],
   ['specular click does not collapse fill', testSpecularClickDoesNotCollapseFill],
@@ -192,6 +223,9 @@ const tests = [
   ['layered texture object fills completely', testLayeredTextureObjectFillsCompletely],
   ['object touching image edges still selects', testObjectTouchingImageEdgesStillSelects],
   ['separate object stays separate', testSeparateObjectStaysSeparate],
+  ['two-tone object selects as one', testTwoToneObjectSelectsAsOne],
+  ['white background click rejected', testWhiteBackgroundClickRejected],
+  ['near-white object separates', testNearWhiteObjectSeparates],
 ] as const
 
 let failed = 0

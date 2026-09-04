@@ -55,6 +55,257 @@ function rgbDistanceAt(
   return Math.hypot(dr, dg, db)
 }
 
+interface PixelBuffer {
+  data: Uint8ClampedArray
+  width: number
+  height: number
+}
+
+interface BackgroundSample {
+  r: number
+  g: number
+  b: number
+}
+
+function clampByte(value: number): number {
+  return value < 0 ? 0 : value > 255 ? 255 : value
+}
+
+function cloneBuffer(image: PixelBuffer): PixelBuffer {
+  return {
+    data: new Uint8ClampedArray(image.data),
+    width: image.width,
+    height: image.height,
+  }
+}
+
+function boxBlur(image: PixelBuffer): void {
+  const { width, height, data: source } = image
+  const blurred = new Uint8ClampedArray(source.length)
+  const radius = 1
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let r = 0
+      let g = 0
+      let b = 0
+      let a = 0
+      let count = 0
+
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const ny = y + dy
+        if (ny < 0 || ny >= height) continue
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx
+          if (nx < 0 || nx >= width) continue
+          const index = (ny * width + nx) * 4
+          if (source[index + 3] < 16) continue
+          r += source[index]
+          g += source[index + 1]
+          b += source[index + 2]
+          a += source[index + 3]
+          count += 1
+        }
+      }
+
+      const dest = (y * width + x) * 4
+      if (count === 0) {
+        blurred[dest + 3] = 0
+        continue
+      }
+
+      blurred[dest] = Math.round(r / count)
+      blurred[dest + 1] = Math.round(g / count)
+      blurred[dest + 2] = Math.round(b / count)
+      blurred[dest + 3] = Math.round(a / count)
+    }
+  }
+
+  source.set(blurred)
+}
+
+function detectUniformBackground(image: PixelBuffer): BackgroundSample | null {
+  const { data, width, height } = image
+  const samples: Array<[number, number, number]> = []
+  const inset = Math.min(6, Math.floor(Math.min(width, height) * 0.02))
+  const stepX = Math.max(1, Math.floor(width / 24))
+  const stepY = Math.max(1, Math.floor(height / 24))
+
+  const sample = (x: number, y: number) => {
+    const sx = Math.max(0, Math.min(width - 1, x))
+    const sy = Math.max(0, Math.min(height - 1, y))
+    const index = (sy * width + sx) * 4
+    if (data[index + 3] < 16) return
+    samples.push([data[index], data[index + 1], data[index + 2]])
+  }
+
+  for (let x = 0; x < width; x += stepX) {
+    sample(x, inset)
+    sample(x, height - 1 - inset)
+  }
+  for (let y = 0; y < height; y += stepY) {
+    sample(inset, y)
+    sample(width - 1 - inset, y)
+  }
+
+  if (samples.length < 16) return null
+
+  let bestIndex = 0
+  let bestCount = 0
+  for (let i = 0; i < samples.length; i += 1) {
+    let count = 0
+    for (const other of samples) {
+      if (
+        Math.hypot(
+          samples[i][0] - other[0],
+          samples[i][1] - other[1],
+          samples[i][2] - other[2],
+        ) <= 28
+      ) {
+        count += 1
+      }
+    }
+    if (count > bestCount) {
+      bestCount = count
+      bestIndex = i
+    }
+  }
+
+  if (bestCount < samples.length * 0.62) return null
+
+  const [anchorR, anchorG, anchorB] = samples[bestIndex]
+  let sumR = 0
+  let sumG = 0
+  let sumB = 0
+  let inliers = 0
+
+  for (const [r, g, b] of samples) {
+    if (Math.hypot(r - anchorR, g - anchorG, b - anchorB) > 28) continue
+    sumR += r
+    sumG += g
+    sumB += b
+    inliers += 1
+  }
+
+  if (inliers < 12) return null
+
+  return {
+    r: Math.round(sumR / inliers),
+    g: Math.round(sumG / inliers),
+    b: Math.round(sumB / inliers),
+  }
+}
+
+function separateFromBackground(
+  image: PixelBuffer,
+  background: BackgroundSample,
+  crushDistance: number,
+): void {
+  const { data } = image
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] < 16) continue
+
+    const distance = colorDistanceAt(
+      data,
+      index,
+      background.r,
+      background.g,
+      background.b,
+    )
+
+    if (distance <= crushDistance) {
+      data[index] = background.r
+      data[index + 1] = background.g
+      data[index + 2] = background.b
+      continue
+    }
+
+    const push = 0.45 + Math.min(0.4, (distance - crushDistance) / 90)
+    data[index] = clampByte(background.r + (data[index] - background.r) * (1 + push))
+    data[index + 1] = clampByte(
+      background.g + (data[index + 1] - background.g) * (1 + push),
+    )
+    data[index + 2] = clampByte(
+      background.b + (data[index + 2] - background.b) * (1 + push),
+    )
+  }
+}
+
+function prepareWandPixels(
+  image: PixelBuffer,
+  background: BackgroundSample | null,
+  colorTolerance: number,
+): PixelBuffer {
+  const work = cloneBuffer(image)
+  boxBlur(work)
+  if (background) {
+    separateFromBackground(work, background, 8 + colorTolerance * 0.16)
+  }
+  return work
+}
+
+function backgroundDistanceThreshold(colorTolerance: number): number {
+  return 18 + colorTolerance * 0.42
+}
+
+function floodObjectMask(
+  image: PixelBuffer,
+  seedX: number,
+  seedY: number,
+  background: BackgroundSample,
+  colorTolerance: number,
+): Uint8Array | null {
+  const { width, height, data } = image
+  const sx = Math.max(0, Math.min(width - 1, Math.floor(seedX)))
+  const sy = Math.max(0, Math.min(height - 1, Math.floor(seedY)))
+  const threshold = backgroundDistanceThreshold(colorTolerance)
+  const seedIndex = (sy * width + sx) * 4
+
+  if (data[seedIndex + 3] < 16) return null
+  if (colorDistanceAt(data, seedIndex, background.r, background.g, background.b) <= threshold) {
+    return null
+  }
+
+  const mask = new Uint8Array(width * height)
+  const queue = new Int32Array(width * height)
+  let head = 0
+  let tail = 0
+  const maxFill = Math.floor(width * height * MAX_FILL_RATIO)
+
+  queue[tail++] = sy * width + sx
+  mask[sy * width + sx] = 1
+
+  while (head < tail) {
+    const flat = queue[head++]
+    const x = flat % width
+    const y = Math.floor(flat / width)
+
+    for (const [dx, dy] of EIGHT_DIRECTIONS) {
+      const nx = x + dx
+      const ny = y + dy
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue
+
+      const next = ny * width + nx
+      if (mask[next]) continue
+      const neighborIndex = next * 4
+      if (data[neighborIndex + 3] < 16) continue
+      if (
+        colorDistanceAt(data, neighborIndex, background.r, background.g, background.b) <=
+        threshold
+      ) {
+        continue
+      }
+
+      mask[next] = 1
+      if (tail + 1 > maxFill) return null
+      queue[tail++] = next
+    }
+  }
+
+  return tail > 0 ? mask : null
+}
+
 function sampleSeedColor(
   data: Uint8ClampedArray,
   width: number,
@@ -582,6 +833,50 @@ function simplifyPath(points: Point[], epsilon: number): Point[] {
   return [points[0], points[end]]
 }
 
+function smoothContour(points: Point[]): Point[] {
+  if (points.length < 8) return points
+
+  const count = points.length
+  const next: Point[] = []
+  for (let i = 0; i < count; i += 1) {
+    const prev = points[(i + count - 1) % count]
+    const curr = points[i]
+    const after = points[(i + 1) % count]
+    next.push({
+      x: prev.x * 0.2 + curr.x * 0.6 + after.x * 0.2,
+      y: prev.y * 0.2 + curr.y * 0.6 + after.y * 0.2,
+    })
+  }
+  return next
+}
+
+function hitFromMask(
+  filled: Uint8Array,
+  width: number,
+  height: number,
+  colorTolerance: number,
+  simplifyEpsilon: number,
+): MagicWandHit | null {
+  const mask = closeMaskGaps(filled, width, height)
+  fillInternalHoles(mask, width, height)
+  if (countMaskPixels(mask) < 32) return null
+  if (!isUsableMask(mask, width, height, colorTolerance)) return null
+
+  const boundary = traceBoundary(mask, width, height)
+  if (boundary.length < 3) return null
+
+  const smoothed = smoothContour(boundary)
+  const epsilon =
+    boundary.length > 400
+      ? Math.max(simplifyEpsilon, 2.2)
+      : boundary.length > 180
+        ? Math.max(simplifyEpsilon, 1.6)
+        : simplifyEpsilon
+  const simplified = simplifyPath(smoothed, epsilon)
+  const points = simplified.length >= 3 ? simplified : smoothed
+  return { points, mask, width, height }
+}
+
 export interface MagicWandHit {
   points: Point[]
   mask: Uint8Array
@@ -597,10 +892,38 @@ export function magicWandSelection(
 ): MagicWandHit | null {
   const colorTolerance = options.colorTolerance ?? 32
   const edgeThreshold = options.edgeThreshold ?? getMagicWandEdgeThreshold(colorTolerance)
-  const simplifyEpsilon = options.simplifyEpsilon ?? 2.5
+  const simplifyEpsilon = options.simplifyEpsilon ?? 1.15
+  const source: PixelBuffer = {
+    data: imageData.data,
+    width: imageData.width,
+    height: imageData.height,
+  }
+  const background = detectUniformBackground(source)
+  const prepared = prepareWandPixels(source, background, colorTolerance)
+  const preparedImage = prepared as ImageData
+
+  if (background) {
+    const objectMask = floodObjectMask(
+      prepared,
+      seedX,
+      seedY,
+      background,
+      colorTolerance,
+    )
+    if (objectMask) {
+      const hit = hitFromMask(
+        objectMask,
+        prepared.width,
+        prepared.height,
+        colorTolerance,
+        simplifyEpsilon,
+      )
+      if (hit) return hit
+    }
+  }
 
   const filled = floodFillMask(
-    imageData,
+    preparedImage,
     seedX,
     seedY,
     colorTolerance,
@@ -608,27 +931,13 @@ export function magicWandSelection(
   )
   if (!filled) return null
 
-  const mask = closeMaskGaps(filled, imageData.width, imageData.height)
-  fillInternalHoles(mask, imageData.width, imageData.height)
-  if (!isUsableMask(mask, imageData.width, imageData.height, colorTolerance)) return null
-
-  const boundary = traceBoundary(mask, imageData.width, imageData.height)
-  if (boundary.length < 3) return null
-
-  const epsilon =
-    boundary.length > 400
-      ? Math.max(simplifyEpsilon, 4.5)
-      : boundary.length > 180
-        ? Math.max(simplifyEpsilon, 3.5)
-        : simplifyEpsilon
-  const simplified = simplifyPath(boundary, epsilon)
-  const points = simplified.length >= 3 ? simplified : boundary
-  return {
-    points,
-    mask,
-    width: imageData.width,
-    height: imageData.height,
-  }
+  return hitFromMask(
+    filled,
+    imageData.width,
+    imageData.height,
+    colorTolerance,
+    simplifyEpsilon,
+  )
 }
 
 export function getMagicWandEdgeThreshold(colorTolerance: number): number {
