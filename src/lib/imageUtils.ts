@@ -4,6 +4,7 @@ import { isChromaKeyColor, isMagentaFamily } from './chromaKey'
 import { isolateArtwork } from './isolateArtwork'
 import { fitDesignToMask, outputMaskForDesign } from './fitToMask'
 import { cleanupLaserInk, LASER_INK_MAX_LUMINANCE } from './laserCleanup'
+import { rasterizeSelection } from './selectionSubtract'
 import { imageDataToDataUrl, trimImageData } from './trimUtils'
 
 export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
@@ -111,19 +112,37 @@ export function cropSelectionToBase64(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Could not create canvas context')
 
-  ctx.beginPath()
-  for (const scaledPoints of scaledRegions) {
-    scaledPoints.forEach((point, index) => {
-      const x = point.x - bounds.x
-      const y = point.y - bounds.y
-      if (index === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    })
-    ctx.closePath()
-  }
-  ctx.clip()
-
   ctx.drawImage(image, bounds.x, bounds.y, sw, sh, 0, 0, sw, sh)
+
+  const coverage = rasterizeSelection(selection.regions, displayWidth, displayHeight)
+  const maskCanvas = document.createElement('canvas')
+  maskCanvas.width = sw
+  maskCanvas.height = sh
+  const maskCtx = maskCanvas.getContext('2d')
+  if (!maskCtx) throw new Error('Could not create canvas context')
+
+  const maskPixels = maskCtx.createImageData(sw, sh)
+  for (let py = 0; py < sh; py += 1) {
+    const displayY = Math.min(
+      displayHeight - 1,
+      Math.max(0, Math.round((bounds.y + py + 0.5) / scaleY)),
+    )
+    for (let px = 0; px < sw; px += 1) {
+      const displayX = Math.min(
+        displayWidth - 1,
+        Math.max(0, Math.round((bounds.x + px + 0.5) / scaleX)),
+      )
+      if (!coverage[displayY * displayWidth + displayX]) continue
+      const offset = (py * sw + px) * 4
+      maskPixels.data[offset] = 255
+      maskPixels.data[offset + 1] = 255
+      maskPixels.data[offset + 2] = 255
+      maskPixels.data[offset + 3] = 255
+    }
+  }
+  maskCtx.putImageData(maskPixels, 0, 0)
+  ctx.globalCompositeOperation = 'destination-in'
+  ctx.drawImage(maskCanvas, 0, 0)
 
   const dataUrl = canvas.toDataURL('image/png')
   const [, base64] = dataUrl.split(',')

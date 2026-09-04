@@ -22,12 +22,19 @@ function testLaserPromptIncludesModeAwareComplexity(): void {
   const prompt = buildPrompt('topo map lines', 'laser', 90, undefined, 1, true, false, 1)
   assert(/continuous/i.test(prompt), 'laser prompt should keep continuous-stroke rules')
   assert(!/Use many complete small objects/i.test(prompt), 'high laser complexity should not request tiny objects')
+  assert(/no border|no.*border|Do NOT add a border/i.test(prompt), 'global prompt should forbid a border')
+}
+
+function testStandalonePromptForbidsBorder(): void {
+  const prompt = buildPrompt('steampunk gears', 'uv', 50)
+  assert(/Do NOT add a border/i.test(prompt), 'standalone prompt should forbid a border')
 }
 
 const tests = [
   ['laser complexity asks for more lines not speckle', testLaserComplexityAsksForMoreLinesNotSpeckle],
   ['uv complexity still blocks cropped texture', testUvComplexityStillBlocksCroppedTexture],
   ['laser prompt includes mode-aware complexity', testLaserPromptIncludesModeAwareComplexity],
+  ['standalone prompt forbids border', testStandalonePromptForbidsBorder],
 ] as const
 
 let failed = 0

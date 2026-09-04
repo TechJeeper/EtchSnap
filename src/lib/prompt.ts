@@ -109,6 +109,7 @@ Output requirements:
 - Put the artwork on a perfectly uniform solid background of exactly ${CHROMA_KEY.hex}
 - Fill empty areas, holes, and gaps with that same solid ${CHROMA_KEY.hex}
 - Do NOT depict a physical object, mockup, table, or photograph
+- Do NOT add a border, frame, outline, stroke, or rim around the artwork
 - Fill all space on the canvas
 - ${modeInstructions(mode)}`
   }
@@ -133,6 +134,7 @@ ${regionLine(regionCount)}
 How to compose — this is NOT a mask over a larger picture:
 - Invent artwork whose silhouette IS this shape. Like a custom inlay or die-cut sticker.
 - Fill all space to the light-gray edges. Do not leave a blank margin or a smaller shape floating inside.
+- Do NOT add a border, frame, outline, stroke, or rim around the silhouette or around the artwork.
 - GOOD: complete motifs arranged along this outline (and around notches/holes), reaching the edges.
 - BAD: cropping a rectangular gear scene, cookie-cutting a texture, or insetting a smaller trapezoid.
 - If a motif would be sliced by the silhouette, shrink it or add another complete motif so the region stays full.
@@ -145,6 +147,6 @@ Output:
 - Return the same image, same width and height
 - Artwork only in the light silhouette, filling all of that space
 - Magenta stays ${CHROMA_KEY.hex} (RGB ${CHROMA_KEY.r}, ${CHROMA_KEY.g}, ${CHROMA_KEY.b})
-- No mockup, product photo, table, or rectangular frame
+- No mockup, product photo, table, rectangular frame, or decorative border
 - ${modeInstructions(mode)}`
 }
